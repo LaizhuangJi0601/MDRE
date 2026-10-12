@@ -1,0 +1,46 @@
+{
+  "name": "mdre",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "test": "tsx --test tests/*.test.ts",
+    "app:build": "pnpm build && cargo build --release --manifest-path src-tauri/Cargo.toml",
+    "app": "cargo run --no-default-features --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/lang-markdown": "^6.3.4",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.5",
+    "@lezer/highlight": "^1.2.5",
+    "@tauri-apps/api": "^2.10.1",
+    "entities": "^6.0.1",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.47",
+    "markdown-it": "^14.1.0",
+    "mathlive": "0.111.1",
+    "mermaid": "^11.12.1",
+    "prosemirror-commands": "^1.7.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-markdown": "^1.13.8",
+    "prosemirror-model": "^1.25.4",
+    "prosemirror-schema-list": "^1.5.1",
+    "prosemirror-state": "^1.4.3",
+    "prosemirror-transform": "^1.10.5",
+    "prosemirror-view": "^1.41.3"
+  },
+  "devDependencies": {
+    "@playwright/cli": "^0.1.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.0.0",
+    "playwright": "^1.56.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2"
+  }
+}
