@@ -1,0 +1,26 @@
+# 依赖、构建输出和生成文件
+node_modules/
+.cache/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# 测试、运行配置和临时资料
+/tests/
+/scripts/
+/.tmp/
+/.playwright-cli/
+/appdata/
+/webview-profile/
+/测试文件/
+/figures/
+/Archive_OldFigures/
+/files/
+/assets/
+/杂波论文*
+/verification.json
+*.log
+*.tmp
+*.bak
+.env
+.env.*
