@@ -25,7 +25,7 @@ export function setupMenus() {
     menu.onpointerenter = () => { if (active && active !== menu) open(menu); };
     menu.querySelector<HTMLElement>('.menu-popup')!.addEventListener('click', event => {
       const button = (event.target as Element).closest<HTMLButtonElement>('button'); if (!button) return;
-      if (button.id === 'recent-menu') return;
+      if (button.id === 'recent-menu' || button.id === 'recent-folder-menu') return;
       close();
       // 命令项优先点击真实元素；只有 data-command 的菜单项交给应用的统一命令分发。
       if (button.dataset.command) {
@@ -44,7 +44,7 @@ export function setupMenus() {
     else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault(); open(menus[(menus.indexOf(active) + (event.key === 'ArrowRight' ? 1 : menus.length - 1)) % menus.length]);
     } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault(); const items = Array.from(active.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+      event.preventDefault(); const items = Array.from(active.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')).filter(button => button.getClientRects().length > 0);
       const current = items.indexOf(document.activeElement as HTMLButtonElement);
       const next = current < 0 ? (event.key === 'ArrowDown' ? 0 : items.length - 1) : (current + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
       items[next]?.focus();

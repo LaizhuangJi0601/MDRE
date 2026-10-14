@@ -1,0 +1,8 @@
+.code-block[data-code-theme="light"] { --code-bg:#f6f7f8; --code-fg:#24292f; --code-border:#e4e7eb; --code-muted:#8b929b; --code-keyword:#b42363; --code-string:#067d17; --code-number:#9539b5; --code-function:#0066b8; --code-comment:#6b7785; --code-selection:#cce5ff; }
+.code-block[data-code-theme="dark"] { --code-bg:#20252c; --code-fg:#d7dde5; --code-border:#363d47; --code-muted:#8993a1; --code-keyword:#ff7b72; --code-string:#a5d6ff; --code-number:#d2a8ff; --code-function:#79c0ff; --code-comment:#8b949e; --code-selection:#354c69; }
+.code-block { background:var(--code-bg); color:var(--code-fg); border-color:var(--code-border); }
+.code-block .hljs-keyword,.code-block .hljs-literal,.code-block .hljs-selector-tag,.code-block .hljs-deletion { color:var(--code-keyword); }
+.code-block .hljs-string,.code-block .hljs-regexp,.code-block .hljs-addition,.code-block .hljs-attr { color:var(--code-string); }
+.code-block .hljs-number,.code-block .hljs-symbol,.code-block .hljs-bullet,.code-block .hljs-variable { color:var(--code-number); }
+.code-block .hljs-title,.code-block .hljs-built_in,.code-block .hljs-type,.code-block .hljs-meta,.code-block .hljs-selector-class { color:var(--code-function); }
+.code-block .hljs-comment,.code-block .hljs-quote { color:var(--code-comment); }

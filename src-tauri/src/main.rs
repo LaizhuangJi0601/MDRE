@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod files;
+mod explorer;
 mod persistence;
 
 use std::{path::PathBuf, sync::{Arc, Mutex}, time::{Duration, SystemTime, UNIX_EPOCH}};
@@ -138,6 +139,7 @@ fn main() {
         .manage(pending)
         .invoke_handler(tauri::generate_handler![
             take_launch_path,
+            explorer::pick_folder, explorer::list_directory, explorer::create_document,
             export_pdf,
             persistence::write_recovery, persistence::read_recovery, persistence::discard_recovery, persistence::discard_recovery_dir, persistence::save_image, persistence::read_image,
             files::read_text_file, files::write_text_file, files::rotate_backup, files::copy_resource, files::read_document_image, files::pick_file, files::pick_export, files::write_export, files::read_binary,

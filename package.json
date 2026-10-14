@@ -1,12 +1,11 @@
 {
   "name": "mdre",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
-    "test": "tsx --test tests/*.test.ts",
     "app:build": "pnpm build && cargo build --release --manifest-path src-tauri/Cargo.toml",
     "app": "cargo run --no-default-features --manifest-path src-tauri/Cargo.toml"
   },

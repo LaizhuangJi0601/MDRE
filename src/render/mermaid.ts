@@ -28,8 +28,12 @@ export function svgDataUrl(svg: string): string | null {
   return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
 }
 export async function renderDiagramImage(code: string, prefix: string, theme: 'default' | 'dark' = appTheme): Promise<string> {
-  const url = svgDataUrl(await renderDiagram(code, prefix, theme));
-  return url ? `<img class="diagram" src="${url}" alt="${escapeAlt(code)}">` : '';
+  const svg = await renderDiagram(code, prefix, theme), url = svgDataUrl(svg);
+  const viewBox = /viewBox="([^"]+)"/.exec(svg)?.[1].trim().split(/\s+/).map(Number);
+  // Mermaid 的 SVG 通常使用 width="100%"。明确固有尺寸，避免小图被拉伸到整栏。
+  const dimensions = viewBox?.length === 4 && viewBox[2] > 0 && viewBox[3] > 0 && viewBox.every(Number.isFinite)
+    ? ` width="${Math.ceil(viewBox[2])}" height="${Math.ceil(viewBox[3])}"` : '';
+  return url ? `<img class="diagram"${dimensions} src="${url}" alt="${escapeAlt(code)}">` : '';
 }
 const escapeAlt = (text: string) => text.replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]!);
 

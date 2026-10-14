@@ -58,6 +58,7 @@ export const schema = new Schema({
   marks: {
     strong: { toDOM: () => ['strong', 0] }, em: { toDOM: () => ['em', 0] },
     strike: { toDOM: () => ['s', 0] }, code: { toDOM: () => ['code', 0] },
+    underline: { toDOM: () => ['u', 0] },
     highlight: { toDOM: () => ['mark', 0] },
     // C-14/C-15/C-16：颜色、背景色、字号与上下标。参数经同一套白名单校验后进入受控样式。
     color: { attrs: { color: {} }, toDOM: m => ['span', { style: `color:${m.attrs.color}` }, 0] },
@@ -78,6 +79,8 @@ const sizes = /^(?:\d+(?:\.\d+)?|\.\d+)(?:em|px)$/;
 // C-14/C-15/C-16：颜色、背景色、字号共用同一套「成对标签 + 参数白名单」机制。
 type TagSpec = { opening: RegExp; closing: string; validate: (value: string) => boolean };
 const tagSpecs: Record<string, TagSpec> = {
+  // CommonMark 没有下划线标记，使用通用 HTML <u>，并纳入富文本字符映射。
+  underline: { opening: /^<u>()/, closing: '</u>', validate: () => true },
   color: { opening: /^\{color:([^}]+)\}/, closing: '{/color}', validate: value => colors.test(value) },
   bg: { opening: /^\{bg:([^}]+)\}/, closing: '{/bg}', validate: value => colors.test(value) },
   size: { opening: /^\{size:([^}]+)\}/, closing: '{/size}', validate: value => sizes.test(value) },
@@ -132,7 +135,7 @@ markdown.inline.ruler.before('text', 'extensions', (state, silent) => {
   if (!silent) {
     const kind = opening.kind;
     const oldMax = state.posMax;
-    const token = state.push(`${kind}_open`, kind === 'highlight' ? 'mark' : 'span', 1) as Traced;
+    const token = state.push(`${kind}_open`, kind === 'highlight' ? 'mark' : kind === 'underline' ? 'u' : 'span', 1) as Traced;
     if (kind === 'color') token.attrSet('color', opening.value!);
     else if (kind === 'bg') token.attrSet('bg', opening.value!);
     else if (kind === 'size') token.attrSet('size', opening.value!);
@@ -140,7 +143,7 @@ markdown.inline.ruler.before('text', 'extensions', (state, silent) => {
     state.pos = start + opening.text.length;
     state.posMax = end;
     state.md.inline.tokenize(state);
-    const close = state.push(`${kind}_close`, kind === 'highlight' ? 'mark' : 'span', -1) as Traced;
+    const close = state.push(`${kind}_close`, kind === 'highlight' ? 'mark' : kind === 'underline' ? 'u' : 'span', -1) as Traced;
     close.meta = { range: { from: end, to: end + opening.closing.length }, units: [] };
     state.posMax = oldMax;
   }
@@ -493,6 +496,8 @@ markdown.renderer.rules.heading_open = (tokens, i, options, _env, renderer) => {
   if (anchor) token.attrSet('id', anchor);
   return renderer.renderToken(tokens, i, options);
 };
+markdown.renderer.rules.underline_open = () => '<u>';
+markdown.renderer.rules.underline_close = () => '</u>';
 markdown.renderer.rules.highlight_open = () => '<mark>';
 markdown.renderer.rules.highlight_close = () => '</mark>';
 for (const kind of ['color', 'bg', 'size']) {
@@ -570,6 +575,11 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
   }
   function finish() {
     const f = stack.pop()!;
+    // markdown-it 的空引用范围可能包含后续裸空行；这些空行属于顶层段落。
+    if (f.type === 'blockquote') {
+      const ending = /(?:[ \t]*(?:\r\n|\r|\n))+$/.exec(source.slice(f.range.from, f.range.to));
+      if (ending) { const first = /\r\n|\r|\n/.exec(ending[0])!; f.range.to = f.range.from + ending.index + first.index + first[0].length; }
+    }
     if (f.type === 'blockquote') {
       const children = f.nodes.slice(); f.nodes = [];
       const childBlocks = new Map(blocks.filter(b => b.parent === f.attrs.id).map(b => [b.id, b]));
@@ -766,10 +776,13 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
   for (const node of roots) {
     const block = rootBlocks.get(node.attrs.id)!;
     const gap = source.slice(Math.max(0, previousEnd), block.from);
-    const count = block.from < source.length && /^\s*$/.test(gap) ? Math.floor(((gap.match(/\n/g) ?? []).length + (previousEnd > 0 ? 1 : 0) - 2) / 2) : 0;
+    const breaks = Array.from(gap.matchAll(/\r\n|\r|\n/g));
+    const count = block.from < source.length && /^\s*$/.test(gap) ? Math.floor((breaks.length + (previousEnd > 0 ? 1 : 0) - 2) / 2) : 0;
     for (let i = 0; i < count; i++) {
       const id = `b${sequence++}`, empty = schema.nodes.paragraph.create({ id });
-      const at = Math.max(0, previousEnd) + (previousEnd > 0 ? 1 : 2) + i * 2;
+      // 空段的输入位置落在完整换行之后，不能把 CRLF 切半，也不能忽略文首 BOM。
+      const boundary = breaks[(previousEnd > 0 ? 1 : 2) + i * 2 - 1];
+      const at = Math.max(0, previousEnd) + boundary.index! + boundary[0].length;
       stack[0].nodes.push(empty); blocks.push({ id, type: 'paragraph', from: at, to: at, pos: 0, node: empty, parent: null });
     }
     stack[0].nodes.push(node); previousEnd = block.to;

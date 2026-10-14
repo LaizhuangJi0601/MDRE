@@ -25,6 +25,11 @@ export function validated(model: Model, edit: Patch, expected: PMNode): { source
   if (!equal(semantics(next.doc), semantics(expected))) throw new Error('当前操作无法可靠映射到 Markdown，请使用源码栏或源码弹窗。原文未改变。', { cause: { source, actual: semantics(next.doc), expected: semantics(expected) } });
   return { source, model: next, edit };
 }
+// 结构操作先保留最小源码补丁；Markdown 会合并相邻容器时，统一编码容器边界再校验。
+export function validatedStructure(model: Model, edit: Patch, expected: PMNode): ReturnType<typeof validated> {
+  const source = patch(model.source, edit), next = parse(source, model, edit);
+  return equal(semantics(next.doc), semantics(expected)) ? { source, model: next, edit } : renderedStructure(model, expected);
+}
 
 // 逐字修改优先使用字符映射；跨格式边界才序列化单个完整段落。
 export function renderedEdit(model: Model, expected: PMNode): ReturnType<typeof validated> {
@@ -103,20 +108,33 @@ export function renderedStructure(model: Model, expected: PMNode): ReturnType<ty
   let start = 0, oldEnd = before.length, newEnd = after.length;
   while (start < oldEnd && start < newEnd && equal(semantics(before[start]), semantics(after[start]))) start++;
   while (oldEnd > start && newEnd > start && equal(semantics(before[oldEnd - 1]), semantics(after[newEnd - 1]))) { oldEnd--; newEnd--; }
-  // 插入或删除块时带上相邻块，统一生成分隔空行，避免空段变成无内容的零长度补丁。
-  if (oldEnd - start !== newEnd - start) {
+  const emptyParagraph = (node: PMNode | undefined) => node?.type.name === 'paragraph' && !node.content.size;
+  // 块增删或段落被删空时，包含相邻块，独立编码空段所需的空行边界。
+  if (oldEnd - start !== newEnd - start || before.slice(start, oldEnd).some(emptyParagraph) || after.slice(start, newEnd).some(emptyParagraph) || before[start]?.type !== after[start]?.type) {
     if (start > 0) start--;
     if (oldEnd < before.length && newEnd < after.length) { oldEnd++; newEnd++; }
+    // 连续空段没有自身文本；扩展到最近的非空块，避免依赖被删代码块的分隔符。
+    while (start > 0 && emptyParagraph(after[start])) start--;
+    while (oldEnd < before.length && newEnd < after.length && emptyParagraph(after[newEnd - 1])) { oldEnd++; newEnd++; }
   }
   const roots = model.blocks.filter(b => b.parent === null).sort((a, b) => a.pos - b.pos);
   const from = roots[start]?.from ?? model.source.length, to = oldEnd > start ? roots[oldEnd - 1].to : from;
   const newline = model.source.includes('\r\n') ? '\r\n' : '\n';
   const makeEdit = (canonical: boolean) => {
-  let previousType = '', marker = '-';
+  let previousType = '', marker = '-', orderedMarker = '.';
   const body = after.slice(start, newEnd).map(node => {
     if (node.type.name === 'bullet_list') marker = previousType === 'bullet_list' ? (marker === '-' ? '+' : '-') : '-';
+    if (node.type.name === 'ordered_list') {
+      const original = model.blocks.find(block => block.id === node.attrs.id);
+      const originalMarker = original && /^\s*\d+([.)])\s/.exec(model.source.slice(original.from, original.to))?.[1];
+      orderedMarker = previousType === 'ordered_list' ? (orderedMarker === '.' ? ')' : '.') : originalMarker || '.';
+    }
+    const result = serializeBlock(node, model, canonical, node.type.name === 'bullet_list' ? marker : '-', orderedMarker);
+    // 原片段可能使用 +、* 或 1)；下一个独立列表必须与实际输出的标记区分。
+    if (node.type.name === 'bullet_list') marker = /^\s*([-+*])\s/.exec(result)?.[1] || marker;
+    if (node.type.name === 'ordered_list') orderedMarker = /^\s*\d+([.)])\s/.exec(result)?.[1] || orderedMarker;
     if (node.content.size) previousType = node.type.name;
-    return serializeBlock(node, model, canonical, node.type.name === 'bullet_list' ? marker : '-');
+    return result;
   }).join('\n\n');
   let insert = body.replace(/\n/g, newline);
   if (after[start]?.type.name === 'paragraph' && !after[start].content.size && newEnd > start + 1) insert = newline + newline + insert;
@@ -133,9 +151,10 @@ export function renderedStructure(model: Model, expected: PMNode): ReturnType<ty
   if (equal(semantics(canonicalNext.doc), semantics(expected))) return { source: canonicalSource, model: canonicalNext, edit: canonicalEdit };
   return validated(model, canonicalEdit, expected);
 }
-function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMarker = '-'): string {
+function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMarker = '-', orderedMarker = '.'): string {
   const original = model.blocks.find(b => b.id === node.attrs.id && equal(semantics(b.node), semantics(node)));
-  if (original?.parent === null && bulletMarker === '-') return model.source.slice(original.from, original.to).replace(/(?:\r\n|\r|\n)+$/, '').replace(/\r\n|\r/g, '\n');
+  const originalRaw = original && model.source.slice(original.from, original.to);
+  if (original?.parent === null && bulletMarker === '-' && (node.type.name !== 'ordered_list' || /^\s*\d+([.)])\s/.exec(originalRaw!)?.[1] === orderedMarker)) return originalRaw!.replace(/(?:\r\n|\r|\n)+$/, '').replace(/\r\n|\r/g, '\n');
   const children = () => Array.from({ length: node.childCount }, (_, i) => serializeBlock(node.child(i), model, canonical));
   switch (node.type.name) {
     case 'paragraph': return serializeInline(node, [], canonical);
@@ -149,12 +168,12 @@ function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMar
     case 'blockquote': { let body = children().join('\n\n'); if (node.firstChild?.type.name === 'paragraph' && !node.firstChild.content.size && node.childCount > 1) body = '\n\n' + body; return body.split('\n').map(line => line ? '> ' + line : '>').join('\n'); }
     case 'bullet_list': case 'ordered_list': {
       return Array.from({ length: node.childCount }, (_, i) => {
-        const item = node.child(i), marker = node.type.name === 'ordered_list' ? `${Number(node.attrs.order) + i}. ` : bulletMarker + ' ';
+        const item = node.child(i), marker = node.type.name === 'ordered_list' ? `${Number(node.attrs.order) + i}${orderedMarker} ` : bulletMarker + ' ';
         const task = item.attrs.checked === null ? '' : item.attrs.checked ? '[x] ' : '[ ] ';
         const content = Array.from({ length: item.childCount }, (_, j) => {
           const child = item.child(j);
           // 子块的原文包含父列表缩进，序列化时由当前容器统一重新加前缀。
-          return child.isTextblock ? serializeInline(child, [], canonical) : serializeBlock(child, { ...model, blocks: [] }, canonical);
+          return child.type.name === 'paragraph' ? serializeInline(child, [], canonical) : serializeBlock(child, { ...model, blocks: [] }, canonical);
         }).join('\n\n').split('\n');
         return marker + task + content[0] + content.slice(1).map(line => '\n' + (line ? ' '.repeat(marker.length) + line : '')).join('');
       }).join('\n');
@@ -170,7 +189,7 @@ function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMar
 }
 
 function serializeInline(node: PMNode, skip: readonly Mark[] = [], canonical = false): string {
-  const order: Record<string, number> = { size: 0, link: 1, color: 2, bg: 3, highlight: 4, em: 5, strong: 6, strike: 7, sup: 8, sub: 9, code: 10 };
+  const order: Record<string, number> = { size: 0, link: 1, color: 2, bg: 3, highlight: 4, em: 5, strong: 6, strike: 7, underline: 8, sup: 9, sub: 10, code: 11 };
   const children: PMNode[] = [];
   node.forEach(child => {
     const marked = child.mark(child.marks.filter(mark => !mark.isInSet(skip)).sort((a, b) => order[a.type.name] - order[b.type.name]));
@@ -206,6 +225,7 @@ function serializeInline(node: PMNode, skip: readonly Mark[] = [], canonical = f
     strong: { ...defaultMarkdownSerializer.marks.strong, expelEnclosingWhitespace: false },
     em: { ...defaultMarkdownSerializer.marks.em, open: canonical ? '_' : '*', close: canonical ? '_' : '*', expelEnclosingWhitespace: false },
     strike: { open: '~~', close: '~~', mixable: true },
+    underline: { open: '<u>', close: '</u>', mixable: true },
     highlight: { open: '==', close: '==', mixable: true },
     color: { open: (_state, mark) => `{color:${mark.attrs.color}}`, close: '{/color}', mixable: true },
     // S-37/S-38：背景色与字号沿用同一套成对标签写法。

@@ -1,4 +1,9 @@
 const paths = {
+  underline: '<path d="M6 4v7a6 6 0 0 0 12 0V4M4 21h16"/>',
+  paper: '<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+  newFile: '<path d="M5 3h9l5 5v13H5zM14 3v5h5M8 14h8M12 10v8"/>',
+  open: '<path d="M3 6h6l2 2h10l-3 11H3zM3 8v11"/>',
+  contrast: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor" stroke="none"/>',
   undo: '<path d="M9 6 4 11l5 5M4 11h10a6 6 0 0 1 6 6"/>',
   redo: '<path d="m15 6 5 5-5 5m5-5H10a6 6 0 0 0-6 6"/>',
   bold: '<path d="M7 4h6a4 4 0 0 1 0 8H7zm0 8h7a4 4 0 0 1 0 8H7z"/>',
@@ -59,6 +64,7 @@ const paths = {
   replaceAll: '<path d="M4 7h14m-4-4 4 4-4 4M20 17H6m4-4-4 4 4 4"/><path d="M3 3v18" stroke-dasharray="2 2"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   backup: '<path d="M7 18H6a4 4 0 0 1-.5-8A6.5 6.5 0 0 1 18 8a5 5 0 0 1 0 10h-1M12 20V11m-3 3 3-3 3 3"/>',
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16M5.5 8h1M5.5 12h1M5.5 16h1"/>',
   columns: '<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M12 4v16"/>',
   book: '<path d="M12 5v15M3 4c3-1 6-1 9 1 3-2 6-2 9-1v15c-3-1-6-1-9 1-3-2-6-2-9-1z"/>',
   markdown: '<path d="M3 6v12m0-12 5 6 5-6v12m5-12v12m-3-3 3 3 3-3"/>',
@@ -67,7 +73,7 @@ const paths = {
   restore: '<path d="M9 5h10v10M5 9h10v10H5z"/>',
 };
 export type Icon = keyof typeof paths;
-export const icon = (name: Icon) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
+export const icon = (name: Icon) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" data-icon="${name}" aria-hidden="true">${paths[name]}</svg>`;
 export function iconButton(id: string, name: Icon, label: string, shortcut = '') {
   return `<button id="${id}" class="icon-button" aria-label="${label}" data-tooltip="${label}${shortcut ? ` (${shortcut})` : ''}">${icon(name)}</button>`;
 }
