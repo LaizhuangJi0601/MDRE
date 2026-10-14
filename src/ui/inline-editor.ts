@@ -1,6 +1,6 @@
 import type { Node as PMNode } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';
-import { markdown } from '../model';
+import { sanitizeHtml } from '../render/html';
 import hljs from 'highlight.js';
 import { codeLanguages, codeLanguageName } from './code-language';
 import { icon } from './icons';
@@ -9,10 +9,12 @@ import './code-theme.css';
 
 // 原子块的源码编辑器位于渲染页内；输入法提交后才写回共享文档。
 export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => number | undefined,
-  options: { docId?: () => string; readOnly: () => boolean; write: (pos: number, raw: string, final?: boolean) => boolean; fail: (reason: unknown) => void; history: (redo: boolean) => void; after: (pos: number) => void; remove: (pos: number) => void; copy: (text: string) => Promise<void>; composing: (active: boolean) => void; finished: () => void }): NodeView {
+  options: { docId?: () => string; resolveImage?: (source: string) => Promise<string | null>; readOnly: () => boolean; write: (pos: number, raw: string, final?: boolean) => boolean; fail: (reason: unknown) => void; history: (redo: boolean) => void; after: (pos: number) => void; remove: (pos: number) => void; copy: (text: string) => Promise<void>; composing: (active: boolean) => void; finished: () => void }): NodeView {
   let node = initial, composing = false, pending = false;
   const owner = options.docId?.();
   const inline = node.type.name === 'raw_inline';
+  const isHtml = inline || node.attrs.kind === 'html_block';
+  let editingHtml = false;
   const dom = document.createElement(inline ? 'span' : 'div');
   dom.className = inline ? 'inline-editor raw-inline-editor' : 'inline-editor opaque';
   dom.contentEditable = 'false';
@@ -25,6 +27,8 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
   const language = document.createElement('select'); language.className = 'inline-language'; language.setAttribute('aria-label', '代码块语言');
   for (const [value, title] of codeLanguages) language.add(new Option(title, value));
   const preview = document.createElement('div'); preview.className = 'inline-preview';
+  const htmlToggle = document.createElement('button'); htmlToggle.className = 'html-source-toggle'; htmlToggle.type = 'button';
+  htmlToggle.onclick = () => { editingHtml = !editingHtml; paint(); if (editingHtml) input.focus(); };
   const fenced = () => !inline && /^(?:\s*>\s*)*\s*(`{3,}|~{3,})/.test(String(node.attrs.raw));
   const isCode = () => !inline && node.attrs.kind === 'code';
   let collapsed = isCode() && String(node.attrs.content).replace(/\n$/, '').split('\n').length >= 20;
@@ -115,8 +119,15 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
     if (input.value !== text) { const from = input.selectionStart, to = input.selectionEnd; input.value = text; if (document.activeElement === input) input.setSelectionRange(Math.min(from, text.length), Math.min(to, text.length)); }
     resize(); preview.replaceChildren();
     if (node.attrs.kind === 'html_block' || inline) {
-      // 预览文本遵循现有安全 HTML 渲染规则，不执行用户 HTML。
-      preview.innerHTML = markdown.render(String(node.attrs.raw));
+      preview.innerHTML = sanitizeHtml(String(node.attrs.content || node.attrs.raw));
+      for (const image of preview.querySelectorAll<HTMLImageElement>('img[src]')) {
+        const original = image.getAttribute('src')!;
+        if (/^(?:https?:|data:)/i.test(original) || !options.resolveImage) continue;
+        options.resolveImage(original).then(url => { if (url && image.isConnected && options.docId?.() === owner) image.src = url; }).catch(options.fail);
+      }
+      editor.hidden = !editingHtml; label.hidden = !editingHtml;
+      htmlToggle.textContent = editingHtml ? '收起 HTML 源码' : '编辑 HTML 源码';
+      htmlToggle.hidden = readonly;
     } else if (node.attrs.kind === 'hr') preview.append(document.createElement('hr'));
   }
   function write(final = false) { if (composing || options.readOnly()) return; const pos = getPos(); if (typeof pos !== 'number') return; try { pending = !options.write(pos, raw(), final); label.textContent = pending ? '正在编辑未完成的语法 · 离开编辑区后提交' : inline ? '内联 HTML' : `${node.attrs.kind} · 在此直接编辑`; } catch (reason) { options.fail(reason); } resize(); }
@@ -133,6 +144,7 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
     });
   }
   dom.append(label, header, editor, preview);
+  if (isHtml) dom.append(htmlToggle);
   if (!inline && !isCode()) { const after = document.createElement('button'); after.className = 'inline-after'; after.textContent = '下方新增段落'; after.onclick = () => { const pos = getPos(); if (typeof pos === 'number' && !options.readOnly()) options.after(pos); }; dom.append(after); }
   paint();
   let lastWidth = -1;

@@ -1,3 +1,4 @@
+import { commitSymbolComposition } from './ui/composition';
 import './style.css';
 import { EditorState as CMState, Compartment } from '@codemirror/state';
 import { EditorView as CMView, keymap as cmKeymap, lineNumbers, highlightActiveLine, drawSelection, rectangularSelection, crosshairCursor } from '@codemirror/view';
@@ -18,7 +19,8 @@ import type { MarkType, Node as PMNode } from 'prosemirror-model';
 import { normalize, parse, schema, markdown, type Atom, type Block, type Model } from './model';
 import { difference, renderedEdit, setImageWidth, setInlineHtml, splitParagraph, joinParagraph, setHeading, swapSibling, toggleTask, type Patch } from './edits';
 import { formulaTarget, formulaEdit, mathUnsupported, type FormulaTarget } from './math-edit';
-import { imageExtension, imageMarkdown, resolveImage, saveImage } from './assets';
+import { imagePaths, imagePathsFromText, imageFileUri } from './image-path';
+import { imageExtension, imageMarkdown, resolveImage, saveImage, savedImageSource } from './assets';
 import { convertBlock, moveBlock, deleteBlock, indentListItem, nestQuote, withFollowingParagraph, type BlockKind } from './blocks';
 import { insertTable, insertRow, removeRow, insertColumn, removeColumn, setTableCell } from './tables';
 import { projectSelection, mapRenderRange, viewOffset } from './mapping';
@@ -220,13 +222,18 @@ const source = new CMView({
     // S-36：多光标。Ctrl+点击增删光标、Alt+拖动列选择由 CodeMirror 原生处理，这里开启多选与选区绘制。
     CMState.allowMultipleSelections.of(true), drawSelection(), rectangularSelection(), crosshairCursor(), CMState.transactionFilter.of(tr => tr.docChanged && (!workspace.active || workspace.active.readOnly) && !mirror ? [] : tr), CMView.domEventHandlers({
     paste: (event) => {
-      const files = imageFiles(event.clipboardData); if (files.length) { action(() => insertImageFiles(files)); return true; }
+      const paths = imagePaths(event.clipboardData); if (paths.length) { event.preventDefault(); action(() => insertImagesFromPaths(paths)); return true; }
+      const files = imageFiles(event.clipboardData);
+      if (!files.length && !event.clipboardData?.getData('text/plain') && !event.clipboardData?.getData('text/html')) {
+        event.preventDefault(); action(async () => { const paths = await invoke<string[] | null>('clipboard_image_paths'); if (paths?.length) await insertImagesFromPaths(paths); }); return true;
+      } if (files.length) { action(() => insertImageFiles(files, undefined, true)); return true; }
       // S-40：源码栏粘到 base64 data URL 时同样转存为资源文件。
       const text = event.clipboardData?.getData('text/plain') ?? '';
       if (dataUrlImage.test(text.trim())) { action(async () => { if (!await insertDataUrlImage(workspace.active, text)) throw new Error('图片数据无法解析。'); }); return true; }
       return false;
     },
     drop: (event) => {
+      const paths = imagePaths(event.dataTransfer); if (paths.length) { event.preventDefault(); action(() => insertImagesFromPaths(paths, { x: event.clientX, y: event.clientY })); return true; }
       const files = imageFiles(event.dataTransfer); if (!files.length) return false;
       const at = source.posAtCoords({ x: event.clientX, y: event.clientY });
       action(() => insertImageFiles(files, at === null ? undefined : { source: at })); return true;
@@ -282,6 +289,7 @@ const plugins = [keymap({
 }), keymap(baseKeymap), searchPlugin, paperPagination()];
 const inlineOptions = {
   docId: () => workspace.activeId,
+  resolveImage: (source: string) => resolveImage(workspace.active, source),
   readOnly: () => !workspace.active || workspace.active.readOnly || !previewTicket || !workspace.accept(previewTicket),
   write: (pos: number, raw: string, final = false) => {
     const doc = workspace.active; requirePreview();
@@ -375,8 +383,12 @@ const render = new EditorView($('render'), {
     } catch (reason) { render.updateState(render.state); throw reason; } });
   },
   handlePaste(view, event) {
-    const files = imageFiles(event.clipboardData);
-    if (files.length) { event.preventDefault(); action(() => insertImageFiles(files)); return true; }
+    const paths = imagePaths(event.clipboardData); if (paths.length) { event.preventDefault(); action(() => insertImagesFromPaths(paths)); return true; }
+      const files = imageFiles(event.clipboardData);
+      if (!files.length && !event.clipboardData?.getData('text/plain') && !event.clipboardData?.getData('text/html')) {
+        event.preventDefault(); action(async () => { const paths = await invoke<string[] | null>('clipboard_image_paths'); if (paths?.length) await insertImagesFromPaths(paths); }); return true;
+      }
+    if (files.length) { event.preventDefault(); action(() => insertImageFiles(files, undefined, true)); return true; }
     // S-40：粘贴 base64 图片同样转存为文件，不把长 data URL 写进正文。
     const raw = event.clipboardData?.getData('text/plain') ?? '';
     if (dataUrlImage.test(raw.trim())) { event.preventDefault(); action(async () => { if (!await insertDataUrlImage(workspace.active, raw)) throw new Error('图片数据无法解析。'); }); return true; }
@@ -389,7 +401,9 @@ const render = new EditorView($('render'), {
     }); return true;
   },
   handleDrop(view, event) {
-    const files = imageFiles((event as DragEvent).dataTransfer);
+    const drag = event as DragEvent, paths = imagePaths(drag.dataTransfer);
+    if (paths.length) { event.preventDefault(); action(() => insertImagesFromPaths(paths, { x: drag.clientX, y: drag.clientY })); return true; }
+    const files = imageFiles(drag.dataTransfer);
     if (!files.length) return true;
     const target = view.posAtCoords({ left: (event as DragEvent).clientX, top: (event as DragEvent).clientY });
     action(() => insertImageFiles(files, target ? { render: target.pos } : undefined));
@@ -460,15 +474,17 @@ function applyPreview(ticket: Ticket) {
   refreshHandle();
   const storedMarks = previewTicket?.docId === doc.id && doc.selection.active === 'render' ? render.state.storedMarks : null;
   const from = Math.max(1, Math.min(doc.selection.render.from, doc.model.doc.content.size - 1)), to = Math.max(1, Math.min(doc.selection.render.to, doc.model.doc.content.size - 1));
-  const state = EditorState.create({ doc: doc.model.doc, plugins });
-  const sel = TextSelection.between(state.doc.resolve(from), state.doc.resolve(to));
-  const transaction = state.tr.setSelection(sel); if (storedMarks && sel.empty) transaction.setStoredMarks(storedMarks);
-  previewTicket = ticket; render.updateState(state.apply(transaction)); doc.renderRevision = ticket.revision;
+  // 持续输入沿用插件状态与 DOM 观察器，避免重建状态中断标点或输入法。
+  const transaction = render.state.tr;
+  if (!render.state.doc.eq(doc.model.doc)) transaction.replaceWith(0, render.state.doc.content.size, doc.model.doc.content);
+  const sel = TextSelection.between(transaction.doc.resolve(from), transaction.doc.resolve(to));
+  transaction.setSelection(sel); if (storedMarks && sel.empty) transaction.setStoredMarks(storedMarks);
+  previewTicket = ticket; render.updateState(render.state.apply(transaction)); doc.renderRevision = ticket.revision;
   $('render').classList.remove('stale'); $('preview-state').textContent = ''; render.setProps({ editable: () => !!workspace.active && !workspace.active.readOnly && !!previewTicket && workspace.accept(previewTicket) });
   syncHint(false);
   render.dom.querySelectorAll<HTMLButtonElement>('.task-toggle').forEach(button => button.disabled = doc.readOnly);
-  render.dom.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.inline-editor input, .inline-editor textarea').forEach(input => input.readOnly = doc.readOnly);
-  render.dom.querySelectorAll<HTMLSelectElement>('.inline-editor select').forEach(select => select.disabled = doc.readOnly);
+  render.dom.querySelectorAll<HTMLTextAreaElement>('.inline-code-editor > textarea').forEach(input => input.readOnly = doc.readOnly);
+  render.dom.querySelectorAll<HTMLSelectElement>('.inline-editor .inline-language').forEach(select => select.disabled = doc.readOnly);
   render.dom.querySelectorAll<HTMLButtonElement>('.inline-after').forEach(button => button.disabled = doc.readOnly);
   render.dom.querySelectorAll<HTMLButtonElement>('.diagram-actions button').forEach(button => { if (button.getAttribute('aria-label') === '删除 Mermaid 图') button.hidden = doc.readOnly; else button.textContent = doc.readOnly ? '查看图表源码' : '编辑图表'; });
   refreshImageHandle();
@@ -1025,7 +1041,7 @@ function imageFiles(data: DataTransfer | null): File[] {
   if (!data) return [];
   const fromItems = Array.from(data.items).filter(item => item.kind === 'file').map(item => item.getAsFile()).filter((file): file is File => !!file);
   const list = fromItems.length ? fromItems : Array.from(data.files);
-  return list.filter(file => /^image\//i.test(file.type));
+  return list.filter(file => (/^image\//i.test(file.type) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name)));
 }
 function applyImageSize(dom: HTMLImageElement, width: number | null) {
   if (width) dom.style.width = `${width}px`; else dom.style.removeProperty('width');
@@ -1095,7 +1111,7 @@ function placeSourceCaret(offset: number) {
   doc.selection = { ...doc.selection, source: { from: offset, to: offset }, active: 'source' };
 }
 // D-1/D-2/D-3：拖拽、粘贴、选图与系统级拖入共用同一条落盘 + 回写路径。
-async function insertImageData(doc: DocumentSession, items: { relativePath: string; alt: string }[], target?: { source?: number; render?: number; pane?: 'source' | 'render' }) {
+async function insertImageData(doc: DocumentSession, items: { src: string; alt: string }[], target?: { source?: number; render?: number; pane?: 'source' | 'render' }) {
   const origin = target?.pane ?? doc.selection.active;
   if (origin === 'render') requirePreview();
   for (const item of items) {
@@ -1104,7 +1120,7 @@ async function insertImageData(doc: DocumentSession, items: { relativePath: stri
       const selection = source.state.selection.main;
       const from = target?.source !== undefined ? offsets[Math.min(target.source, offsets.length - 1)] : offsets[selection.from];
       const to = target?.source !== undefined ? from : offsets[selection.to];
-      const edit = { from, to, insert: imageMarkdown(item.alt, item.relativePath) };
+      const edit = { from, to, insert: imageMarkdown(item.alt, item.src) };
       const next = parse(doc.source.slice(0, from) + edit.insert + doc.source.slice(to), doc.model, edit);
       const atom = next.atoms.find(atom => atom.kind === 'image' && atom.from >= from && atom.to <= from + edit.insert.length);
       const root = atom && next.blocks.find(block => block.parent === null && atom.pos >= block.pos && atom.pos < block.pos + block.node.nodeSize);
@@ -1112,7 +1128,7 @@ async function insertImageData(doc: DocumentSession, items: { relativePath: stri
       structural(withFollowingParagraph(doc.model, edit, root.pos), undefined, 'source');
       placeSourceCaret(edit.from + edit.insert.length);
     } else {
-      const node = schema.nodes.image.create({ src: item.relativePath, alt: item.alt, title: '', width: null });
+      const node = schema.nodes.image.create({ src: item.src, alt: item.alt, title: '', width: null });
       const at = target?.render;
       const tr = at === undefined ? render.state.tr.replaceSelectionWith(node) : render.state.tr.insert(Math.max(1, Math.min(at, render.state.doc.content.size - 1)), node);
       const rootPosition = tr.selection.$from.depth ? tr.selection.$from.before(1) : tr.selection.from;
@@ -1121,7 +1137,7 @@ async function insertImageData(doc: DocumentSession, items: { relativePath: stri
     }
   }
 }
-// S-40：剪贴板里的 `data:image/…;base64,…` 自动转存为 assets 文件，避免正文塞入长 base64。
+// S-40：剪贴板里的 `data:image/…;base64,…` 先写入持久图片目录，失败才使用 assets，避免正文塞入长 base64。
 const dataUrlImage = /^data:image\/(png|jpeg|gif|webp|bmp|svg\+xml);base64,([A-Za-z0-9+/=\s]+)$/i;
 async function insertDataUrlImage(doc: DocumentSession, url: string, target?: { source?: number; render?: number; pane?: 'source' | 'render' }): Promise<boolean> {
   const match = dataUrlImage.exec(url.trim());
@@ -1131,38 +1147,39 @@ async function insertDataUrlImage(doc: DocumentSession, url: string, target?: { 
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
   const saved = await saveImage(doc, bytes, extension);
-  await insertImageData(doc, [{ relativePath: saved.relativePath, alt: '图片' }], target);
+  await insertImageData(doc, [{ src: savedImageSource(saved), alt: '图片' }], target);
   return true;
 }
-async function insertImageFiles(files: File[], target?: { source?: number; render?: number; pane?: 'source' | 'render' }) {
+async function insertImageFiles(files: File[], target?: { source?: number; render?: number; pane?: 'source' | 'render' }, fromClipboard = false) {
   const doc = workspace.active;
   if (doc.readOnly) throw new Error('当前为只读模式，修改未提交。');
   if (doc.composition) throw new Error('请先提交组合输入。');
-  const images = files.filter(file => /^image\//i.test(file.type));
+  const images = files.filter(file => (/^image\//i.test(file.type) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name)));
   if (!images.length) throw new Error('没有可插入的图片文件。');
-  const items: { relativePath: string; alt: string }[] = [];
+  const clipboardPaths = fromClipboard ? await invoke<string[] | null>('clipboard_image_paths') : null;
+  if (clipboardPaths?.length) { await insertImagesFromPaths(clipboardPaths); return; }
+  const items: { src: string; alt: string }[] = [];
   for (const file of images) {
     const saved = await saveImage(doc, new Uint8Array(await file.arrayBuffer()), imageExtension(file));
-    items.push({ relativePath: saved.relativePath, alt: file.name.replace(/\.[^.]+$/, '') || '图片' });
+    items.push({ src: savedImageSource(saved), alt: file.name.replace(/\.[^.]+$/, '') || '图片' });
   }
   await insertImageData(doc, items, target);
 }
-// D-1：系统拖入以真实路径到达，按落点命中栏位后走同一条落盘路径。
+// D-1：系统拖入以真实路径到达，按落点命中栏位后直接引用原文件。
 async function insertImagesFromPaths(paths: string[], point?: { x: number; y: number }) {
   const doc = workspace.active;
   if (doc.readOnly) throw new Error('当前为只读模式，修改未提交。');
   const renderRect = $('render').getBoundingClientRect(), sourceRect = $('source').getBoundingClientRect();
   const inRender = !!point && point.x >= renderRect.left && point.x <= renderRect.right;
   const inSource = !!point && !doc.readOnly && point.x >= sourceRect.left && point.x <= sourceRect.right;
-  const items: { relativePath: string; alt: string }[] = [];
+  const items: { src: string; alt: string }[] = [];
   for (const path of paths) {
-    const data = await invoke<string>('read_binary', { path });
-    const bytes = Uint8Array.from(atob(data.split(',')[1] ?? ''), char => char.charCodeAt(0));
-    const saved = await saveImage(doc, bytes, path.replace(/^.*\./, '').toLowerCase());
-    items.push({ relativePath: saved.relativePath, alt: path.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '') });
+    // 原始文件先验证能读取，直接引用，避免为已有图片再创建 assets 副本。
+    await invoke<string>('read_binary', { path });
+    items.push({ src: imageFileUri(path), alt: path.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '') });
   }
   const pane = inSource ? 'source' : 'render';
-  const at = pane === 'source' ? source.posAtCoords({ x: point!.x, y: point!.y }) ?? undefined : render.posAtCoords({ left: point!.x, top: point!.y })?.pos;
+  const at = !point ? undefined : pane === 'source' ? source.posAtCoords({ x: point!.x, y: point!.y }) ?? undefined : render.posAtCoords({ left: point!.x, top: point!.y })?.pos;
   await insertImageData(doc, items, { pane: inRender || inSource ? pane : undefined, source: pane === 'source' ? at : undefined, render: pane === 'render' ? at : undefined });
 }
 function selectedItem() {
@@ -1349,6 +1366,7 @@ source.contentDOM.addEventListener('compositionstart', () => compositionStart('s
 source.contentDOM.addEventListener('compositionend', compositionEnd);
 render.dom.addEventListener('compositionstart', () => compositionStart('render'));
 render.dom.addEventListener('compositionend', compositionEnd);
+commitSymbolComposition(render, () => compositionBase?.session === workspace.active && workspace.active.composition === 'render');
 render.dom.addEventListener('focus', () => { if (workspace.active && !workspace.active.readOnly) workspace.active.selection.active = 'render'; });
 render.dom.addEventListener('click', event => {
   const link = (event.target as Element).closest<HTMLAnchorElement>('a[href]');
@@ -1428,7 +1446,7 @@ const handlers: Record<string, () => void | Promise<void>> = {
   rule: () => convertActive('hr'),
   link: openLinkDialog,
   table: openTableDialog,
-  image: () => $<HTMLInputElement>('image-input').click(),
+  image: async () => { const paths = await invoke<string[] | null>('pick_images'); if (paths?.length) await insertImagesFromPaths(paths); },
   'code-block': openCodeDialog,
   split: splitActive, join: joinActive,
   up: () => structural(swapSibling(workspace.active.model, selectedItem().id, -1)), down: () => structural(swapSibling(workspace.active.model, selectedItem().id, 1)), raw: () => openDraft(),
@@ -1738,7 +1756,7 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
   const items: ContextItem[] = [
     item('copy', '复制', async () => { await navigator.clipboard.writeText(copyText()); }, !selected, 'copy', 'Ctrl+C'),
     item('cut', '剪切', async () => { await navigator.clipboard.writeText(copyText()); if (!workspace.accept(ticket)) throw new Error('选区已变化，请重新剪切。'); pasteText(''); }, !selected || !writable, 'cut', 'Ctrl+X'),
-    item('paste', '粘贴', async () => { const text = await navigator.clipboard.readText(); if (!workspace.accept(ticket)) throw new Error('文档已变化，请重新粘贴。'); pasteText(text); }, !writable, 'paste', 'Ctrl+V'),
+    item('paste', '粘贴', async () => { const paths = await invoke<string[] | null>('clipboard_image_paths'); if (paths?.length) { if (!workspace.accept(ticket)) throw new Error('文档已变化，请重新粘贴。'); await insertImagesFromPaths(paths); return; } const text = await navigator.clipboard.readText(); if (!workspace.accept(ticket)) throw new Error('文档已变化，请重新粘贴。'); const textPaths = imagePathsFromText(text); if (textPaths.length) await insertImagesFromPaths(textPaths); else pasteText(text); }, !writable, 'paste', 'Ctrl+V'),
     item('select-all', '全选', () => { if (control) control.select(); else if (origin === 'source') source.dispatch({ selection: { anchor: 0, head: source.state.doc.length } }); else render.dispatch(render.state.tr.setSelection(TextSelection.between(render.state.doc.resolve(0), render.state.doc.resolve(render.state.doc.content.size)))); }, false, 'selectAll', 'Ctrl+A'),
     { id: 'sep-clipboard', label: '', separator: true },
     item('undo', '撤销', () => travel(false), !writable, 'undo', 'Ctrl+Z'), item('redo', '重做', () => travel(true), !writable, 'redo', 'Ctrl+Y'),

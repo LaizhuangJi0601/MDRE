@@ -189,7 +189,7 @@ function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMar
 }
 
 function serializeInline(node: PMNode, skip: readonly Mark[] = [], canonical = false): string {
-  const order: Record<string, number> = { size: 0, link: 1, color: 2, bg: 3, highlight: 4, em: 5, strong: 6, strike: 7, underline: 8, sup: 9, sub: 10, code: 11 };
+  const order: Record<string, number> = { html: -1, size: 0, link: 1, color: 2, bg: 3, highlight: 4, em: 5, strong: 6, strike: 7, underline: 8, sup: 9, sub: 10, code: 11 };
   const children: PMNode[] = [];
   node.forEach(child => {
     const marked = child.mark(child.marks.filter(mark => !mark.isInSet(skip)).sort((a, b) => order[a.type.name] - order[b.type.name]));
@@ -214,7 +214,14 @@ function serializeInline(node: PMNode, skip: readonly Mark[] = [], canonical = f
         state.write(text);
       } else state.text(text.replace(/&/g, '&amp;'));
     },
-    image: (state, child) => { defaultMarkdownSerializer.nodes.image(state, child, node, 0); if (child.attrs.dimensions) state.write(String(child.attrs.dimensions)); else if (child.attrs.width) state.write(`{w:${child.attrs.width}}`); },
+    image: (state, child) => {
+      if (/^file:/i.test(String(child.attrs.src))) {
+        const title = child.attrs.title ? ` "${String(child.attrs.title).replace(/(["\\])/g, '\\$1')}"` : '';
+        // 标准尖括号目的地址保留路径内的括号，富文本和源码插入使用同一种写法。
+        state.write(`![${state.esc(String(child.attrs.alt || ''))}](<${String(child.attrs.src).replace(/</g, '%3C').replace(/>/g, '%3E')}>${title})`);
+      } else defaultMarkdownSerializer.nodes.image(state, child, node, 0);
+      if (child.attrs.dimensions) state.write(String(child.attrs.dimensions)); else if (child.attrs.width) state.write(`{w:${child.attrs.width}}`);
+    },
     raw_inline: (state, child) => state.write(String(child.attrs.raw)),
     math_inline: (state, child) => state.write(`$${child.attrs.latex}$`),
     footnote_ref: (state, child) => state.write(`[^${child.attrs.label}]`),
@@ -233,7 +240,9 @@ function serializeInline(node: PMNode, skip: readonly Mark[] = [], canonical = f
     size: { open: (_state, mark) => `{size:${mark.attrs.size}}`, close: '{/size}', mixable: true },
     sup: { open: '^', close: '^', mixable: true },
     sub: { open: '~', close: '~', mixable: true },
-  }, { escapeExtraCharacters: /[={}<>!|$^~]/g });
+    html: { open: (_state, mark) => String(mark.attrs.open), close: (_state, mark) => String(mark.attrs.close), mixable: false, expelEnclosingWhitespace: false },
+  // ProseMirror 已转义 ~；额外再转义会留下多余反斜杠，导致分段回写校验失败。
+  }, { escapeExtraCharacters: /[={}<>!|$^]/g });
   return serializer.serialize(schema.nodes.doc.create(null, schema.nodes.paragraph.create(null, children)));
 }
 

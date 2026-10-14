@@ -30,11 +30,12 @@ export function paperPagination() {
         frame = 0;
         if (destroyed || view.composing) return;
         measuring = true;
+        const scroll = { top: pane.scrollTop, left: pane.scrollLeft };
         try {
           if (key.getState(view.state)?.find().length) set([]);
           sheets.replaceChildren();
-          canvas.removeAttribute('style'); stage.removeAttribute('style');
           if (!pane.classList.contains('paper-paged')) {
+            canvas.removeAttribute('style'); stage.removeAttribute('style');
             pane.dataset.pages = '1'; pane.dataset.columns = '1';
             pane.dispatchEvent(new CustomEvent('mdre:paper-pages')); return;
           }
@@ -139,7 +140,11 @@ export function paperPagination() {
           }
           pane.dataset.pages = String(pages); pane.dataset.columns = String(columns);
           pane.dispatchEvent(new CustomEvent('mdre:paper-pages'));
-        } finally { measuring = false; }
+        } finally {
+          // 测量期间保留画布高度，避免后续页滚动位置被压到第一页。
+          pane.scrollTop = scroll.top; pane.scrollLeft = scroll.left;
+          measuring = false;
+        }
       }
       pane.addEventListener('mdre:paper-layout', schedule);
       view.dom.addEventListener('load', schedule, true);

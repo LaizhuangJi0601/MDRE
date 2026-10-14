@@ -12,7 +12,7 @@ export type Settings = {
   split: number;
   paper_enabled: boolean;
   paper_layout: 'continuous' | 'paged';
-  paper_align: 'left' | 'right' | 'justify';
+  paper_align: 'left' | 'center' | 'right' | 'justify';
   image_layout: 'fit' | 'natural';
   sidebar_width: number;
   file_list_ratio: number;
@@ -58,7 +58,7 @@ const validators: Record<keyof Settings, (value: unknown) => boolean> = {
   show_source: value => typeof value === 'boolean',
   paper_enabled: value => typeof value === 'boolean',
   paper_layout: value => ['continuous', 'paged'].includes(value as string),
-  paper_align: value => ['left', 'right', 'justify'].includes(value as string),
+  paper_align: value => ['left', 'center', 'right', 'justify'].includes(value as string),
   image_layout: value => ['fit', 'natural'].includes(value as string),
   sidebar_width: value => typeof value === 'number' && value >= 180 && value <= 420,
   file_list_ratio: value => typeof value === 'number' && value >= 20 && value <= 80,

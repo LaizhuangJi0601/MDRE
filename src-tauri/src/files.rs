@@ -328,7 +328,7 @@ pub fn read_document_image(window: tauri::WebviewWindow, path: String, relative:
     crate::persistence::read_image(window, parent, name)
 }
 fn dialog(filter_index: u32, title: &str, suggested: Option<&str>, save: bool, extension: &str, owner: Option<windows::Win32::Foundation::HWND>) -> Option<String> {
-    let filter_text = match extension { "html" => "HTML\0*.html;*.htm\0所有文件\0*.*\0\0", "pdf" => "PDF\0*.pdf\0所有文件\0*.*\0\0", _ => "Markdown\0*.md;*.markdown;*.txt\0所有文件\0*.*\0\0" };
+    let filter_text = match extension { "image" => "图片\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg\0所有文件\0*.*\0\0", "html" => "HTML\0*.html;*.htm\0所有文件\0*.*\0\0", "pdf" => "PDF\0*.pdf\0所有文件\0*.*\0\0", _ => "Markdown\0*.md;*.markdown;*.txt\0所有文件\0*.*\0\0" };
     let filter: Vec<u16> = filter_text.encode_utf16().collect();
     let mut name: Vec<u16> = suggested.unwrap_or("").encode_utf16().chain(Some(0)).collect();
     name.resize(1024, 0);
@@ -357,7 +357,49 @@ pub fn read_binary(path: String) -> Result<String, String> {
     let metadata = std::fs::metadata(&target).map_err(|error| error.to_string())?;
     if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 { return Err("文件不存在或超过 32 MB".into()); }
     let bytes = std::fs::read(&target).map_err(|error| error.to_string())?;
-    Ok(format!("data:application/octet-stream;base64,{}", crate::persistence::encode_base64(&bytes)))
+    let mime = crate::persistence::image_type(target.extension().and_then(|s| s.to_str()).unwrap_or("")).unwrap_or("application/octet-stream");
+    Ok(format!("data:{mime};base64,{}", crate::persistence::encode_base64(&bytes)))
+}
+#[tauri::command]
+pub fn pick_images(window: tauri::WebviewWindow) -> Option<Vec<String>> {
+    use windows::Win32::UI::Controls::Dialogs::OFN_ALLOWMULTISELECT;
+    let owner = window.hwnd().ok().map(|handle| windows::Win32::Foundation::HWND(handle.0 as _));
+    let filter = wide(&["图片", "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg", "所有文件", "*.*", ""].join(&char::from(0).to_string()));
+    let title = wide("插入图片（引用原文件）"); let mut name = vec![0u16; 32768];
+    let mut options = OPENFILENAMEW {
+        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32, hwndOwner: owner.unwrap_or_default(),
+        lpstrFilter: PCWSTR(filter.as_ptr()), nFilterIndex: 1,
+        lpstrFile: windows::core::PWSTR(name.as_mut_ptr()), nMaxFile: name.len() as u32, lpstrTitle: PCWSTR(title.as_ptr()),
+        Flags: OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | OFN_ALLOWMULTISELECT,
+        ..Default::default()
+    };
+    if !unsafe { GetOpenFileNameW(&mut options) }.as_bool() { return None; }
+    let parts: Vec<String> = name.split(|value| *value == 0).take_while(|part| !part.is_empty()).map(String::from_utf16_lossy).collect();
+    if parts.len() <= 1 { return Some(parts); }
+    let directory = PathBuf::from(&parts[0]);
+    Some(parts[1..].iter().map(|file| directory.join(file).to_string_lossy().into_owned()).collect())
+}
+
+#[tauri::command]
+pub fn clipboard_image_paths() -> Result<Vec<String>, String> {
+    use windows::Win32::System::DataExchange::{OpenClipboard, CloseClipboard, GetClipboardData};
+    use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+    unsafe {
+        if OpenClipboard(None).is_err() { return Ok(Vec::new()); }
+        let result = (|| {
+            let Ok(handle) = GetClipboardData(15) else { return Ok(Vec::new()); };
+            let drop = HDROP(handle.0); let count = DragQueryFileW(drop, u32::MAX, None);
+            let mut paths = Vec::new();
+            for index in 0..count {
+                let mut name = vec![0u16; DragQueryFileW(drop, index, None) as usize + 1];
+                let length = DragQueryFileW(drop, index, Some(&mut name)) as usize;
+                let path = String::from_utf16_lossy(&name[..length]);
+                if crate::persistence::image_type(Path::new(&path).extension().and_then(|s| s.to_str()).unwrap_or("")).is_some() { paths.push(path); }
+            }
+            Ok(paths)
+        })();
+        let _ = CloseClipboard(); result
+    }
 }
 // E-1：系统文件选择器；取消返回 null，不改变任何文档状态。
 #[tauri::command]
@@ -439,7 +481,7 @@ pub fn write_settings(app: tauri::AppHandle, window: tauri::WebviewWindow, state
     if !["light", "dark"].contains(&settings.code_theme.as_str()) { return Err("代码块主题配置无效".into()); }
     if !["edit", "read"].contains(&settings.default_mode.as_str()) { return Err("默认启动模式无效".into()); }
     if !["continuous", "paged"].contains(&settings.paper_layout.as_str()) { return Err("A4 排版方式无效".into()); }
-    if !["left", "right", "justify"].contains(&settings.paper_align.as_str()) { return Err("分页正文对齐方式无效".into()); }
+    if !["left", "center", "right", "justify"].contains(&settings.paper_align.as_str()) { return Err("A4 正文对齐方式无效".into()); }
     if !["fit", "natural"].contains(&settings.image_layout.as_str()) { return Err("图片显示方式无效".into()); }
     if !(180.0..=420.0).contains(&settings.sidebar_width) { return Err("侧栏宽度需在 180–420 px 之间".into()); }
     if !(20.0..=80.0).contains(&settings.file_list_ratio) { return Err("文件列表区域比例需在 20%–80% 之间".into()); }

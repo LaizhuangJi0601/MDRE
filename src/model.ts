@@ -2,6 +2,8 @@ import MarkdownIt from 'markdown-it';
 import type Token from 'markdown-it/lib/token.mjs';
 import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs';
 import { Schema, Node as PMNode, Mark } from 'prosemirror-model';
+import { sanitizeHtml, htmlInlineTags } from './render/html';
+import { absoluteImagePath } from './image-path';
 
 export type Range = { from: number; to: number };
 export type Character = Range & { pos: number; text: string; marks: readonly Mark[]; block: string };
@@ -66,13 +68,23 @@ export const schema = new Schema({
     size: { attrs: { size: {} }, toDOM: m => ['span', { style: `font-size:${m.attrs.size}` }, 0] },
     sup: { toDOM: () => ['sup', 0] },
     sub: { toDOM: () => ['sub', 0] },
+    // HTML 保留原始属性；工具栏颜色和高亮仍使用 MDRE 自定义标签。
+    html: { attrs: { open: {}, close: {} }, excludes: '', toDOM: mark => {
+      const template = document.createElement('template');
+      template.innerHTML = sanitizeHtml(String(mark.attrs.open));
+      const element = template.content.firstElementChild;
+      return [element?.tagName.toLowerCase() || 'span', element ? Object.fromEntries([...element.attributes].map(attr => [attr.name, attr.value])) : {}, 0];
+    } },
     link: { attrs: { href: {}, title: { default: '' } }, inclusive: false, toDOM: m => ['a', { ...m.attrs, rel: 'noopener noreferrer' }, 0] },
   },
 });
 
 type Trace = { range: Range; units: Range[] };
 type Traced = Token & { meta: Trace | null };
-export const markdown = new MarkdownIt({ html: true, linkify: false, typographer: false });
+export const markdown = new MarkdownIt('commonmark', { html: true, linkify: false, typographer: false, xhtmlOut: false }).enable(['table', 'strikethrough']);
+(markdown.options as typeof markdown.options & { maxNesting: number }).maxNesting = 100;
+const validateLink = markdown.validateLink.bind(markdown);
+markdown.validateLink = value => /^file:/i.test(value) && !!absoluteImagePath(value) || validateLink(value);
 const colors = /^(?:red|blue|green|yellow|orange|purple|black|white|gray|grey|#[0-9a-f]{3}(?:[0-9a-f]{3})?)$/i;
 // S-38：字号只接受正有限数值加 em 或 px，与 C.2 的字号参数约束一致。
 const sizes = /^(?:\d+(?:\.\d+)?|\.\d+)(?:em|px)$/;
@@ -243,6 +255,8 @@ markdown.block.ruler.before('table', 'front_matter', (state) => {
   let end = -1;
   for (let i = 1; i < lines.length; i++) if (/^(?:---|\.\.\.)[ \t]*$/.test(lines[i])) { end = i; break; }
   if (end < 0) return false;
+  // 没有 YAML 字段的分隔线/Setext 标题组合仍是 CommonMark 正文。
+  if (!lines.slice(1, end).some(line => /^[A-Za-z_][\w.-]*\s*:/.test(line))) return false;
   const token = state.push('front_matter', 'div', 0) as Traced;
   const offsets = (state as unknown as BlockState);
   token.content = lines.slice(0, end + 1).join('\n');
@@ -512,8 +526,8 @@ for (const kind of ['sup', 'sub']) {
   markdown.renderer.rules[`${kind}_open`] = () => `<${kind}>`;
   markdown.renderer.rules[`${kind}_close`] = () => `</${kind}>`;
 }
-markdown.renderer.rules.html_block = (tokens, i) => `<pre class="raw-html">${markdown.utils.escapeHtml(tokens[i].content)}</pre>`;
-markdown.renderer.rules.html_inline = (tokens, i) => /^<br\s*\/?>$/i.test(tokens[i].content) ? '<br>' : markdown.utils.escapeHtml(tokens[i].content);
+markdown.renderer.rules.html_block = (tokens, i) => sanitizeHtml(tokens[i].content);
+markdown.renderer.rules.html_inline = (tokens, i) => sanitizeHtml(tokens[i].content);
 
 // 源码 ↔ 视图偏移映射是纯函数；大文档下每次按键会被反复调用，按同一字符串记忆化。
 let cachedNormalize: { source: string; value: { text: string; offsets: number[] } } | null = null;
@@ -702,8 +716,46 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
       }
       let marks: readonly Mark[] = [], local = 0;
       const markStack: Mark[] = [];
-      for (const base of token.children || []) {
-        const child = base as Traced;
+      const children = token.children || [];
+      // 成对的行内 HTML 包住实际可编辑文字，两个标签不再显示成源码框。
+      const htmlStack: { token: Token; tag: string }[] = [];
+      const pairs = new Map<Token, { open: string; close: string; opening: boolean }>();
+      for (const html of children) {
+        if (html.type !== 'html_inline') continue;
+        const open = /^<([a-z][a-z0-9]*)(?:\s[^>]*)?>$/i.exec(html.content);
+        const close = /^<\/(\w+)\s*>$/.exec(html.content);
+        if (open && htmlInlineTags.has(open[1].toLowerCase())) htmlStack.push({ token: html, tag: open[1].toLowerCase() });
+        else if (close && htmlStack.at(-1)?.tag === close[1].toLowerCase()) {
+          const first = htmlStack.pop()!.token;
+          const attrs = { open: first.content, close: html.content };
+          pairs.set(first, { ...attrs, opening: true }); pairs.set(html, { ...attrs, opening: false });
+        }
+      }
+      for (let childIndex = 0; childIndex < children.length; childIndex++) {
+        const child = children[childIndex] as Traced;
+        const component = child.type === 'html_inline' && /^<(svg|math|picture|audio|video|select|textarea|button|meter|progress|datalist)(?:\s[^>]*)?>$/i.exec(child.content);
+        if (component) {
+          let depth = 1, end = childIndex + 1;
+          for (; end < children.length; end++) {
+            const item = children[end]; if (item.type !== 'html_inline') continue;
+            if (new RegExp(`^<${component[1]}(?:\\s[^>]*)?>$`, 'i').test(item.content)) depth++;
+            if (new RegExp(`^</${component[1]}\\s*>$`, 'i').test(item.content) && --depth === 0) break;
+          }
+          if (depth === 0) {
+            const range = { from: child.meta!.range.from, to: (children[end] as Traced).meta!.range.to };
+            frame.nodes.push(schema.nodes.raw_inline.create({ raw: token.content.slice(range.from, range.to) }, null, marks));
+            atoms.push({ from: inlineOffsets[range.from], to: inlineOffsets[range.to], pos: local++, block: frame.attrs.id as string, kind: 'html' });
+            childIndex = end; continue;
+          }
+        }
+        const html = pairs.get(child);
+        if (html) {
+          const mark = schema.marks.html.create({ open: html.open, close: html.close });
+          if (html.opening) markStack.push(mark);
+          else { let index = markStack.length - 1; while (index >= 0 && !markStack[index].eq(mark)) index--; if (index >= 0) markStack.splice(index, 1); }
+          marks = markStack.reduce((active, mark) => mark.addToSet(active), [] as readonly Mark[]);
+          continue;
+        }
         const name = child.type.replace(/_(open|close)$/, '');
         const kind = name === 's' ? 'strike' : name;
         if (child.nesting === 1 && schema.marks[kind]) {

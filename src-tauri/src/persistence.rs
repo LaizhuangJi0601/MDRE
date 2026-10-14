@@ -139,9 +139,9 @@ pub fn discard_recovery_dir(app: tauri::AppHandle, window: tauri::WebviewWindow,
 pub struct ImageRequest { doc_id: String, base64: String, extension: String, directory: Option<String> }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SavedImage { relative_path: String, absolute_path: String, resource_root: String, bytes: u64, hash: String, deduplicated: bool }
+pub struct SavedImage { relative_path: String, absolute_path: String, resource_root: String, bytes: u64, hash: String, deduplicated: bool, fallback: bool }
 
-fn image_type(extension: &str) -> Option<&'static str> {
+pub(crate) fn image_type(extension: &str) -> Option<&'static str> {
     match extension.to_ascii_lowercase().as_str() {
         "png" => Some("image/png"), "jpg" | "jpeg" => Some("image/jpeg"), "gif" => Some("image/gif"),
         "webp" => Some("image/webp"), "bmp" => Some("image/bmp"), "svg" => Some("image/svg+xml"), _ => None,
@@ -172,22 +172,6 @@ fn decode_base64(text: &str) -> Result<Vec<u8>, String> {
     if output.is_empty() { return Err("图片数据为空".into()); }
     Ok(output)
 }
-fn date_stamp() -> String {
-    let days = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() / 86_400).unwrap_or(0);
-    // 以 1970-01-01 为基准做民用日期换算，避免引入时间库。
-    let (mut year, mut remaining) = (1970i64, days as i64);
-    loop {
-        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-        let length = if leap { 366 } else { 365 };
-        if remaining < length { break; }
-        remaining -= length; year += 1;
-    }
-    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let months = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut month = 0;
-    while remaining >= months[month] { remaining -= months[month]; month += 1; }
-    format!("{year:04}-{:02}-{:02}", month + 1, remaining + 1)
-}
 // D.1：无路径文档的图片归属恢复区 <docId>/assets；有路径文档写入同级 assets。
 #[tauri::command]
 pub fn save_image(app: tauri::AppHandle, window: tauri::WebviewWindow, state: tauri::State<Storage>, request: ImageRequest) -> Result<SavedImage, String> {
@@ -197,22 +181,26 @@ pub fn save_image(app: tauri::AppHandle, window: tauri::WebviewWindow, state: ta
     if image_type(&extension).is_none() { return Err(format!("不支持的图片扩展名：{extension}")) }
     let bytes = decode_base64(&request.base64)?;
     if bytes.len() > 20 * 1024 * 1024 { return Err("图片超过 20 MB，未写入".into()); }
-    let assets = match request.directory {
-        Some(directory) => PathBuf::from(directory).join("assets"),
-        None => root(&app, &window)?.join("recovery").join(fingerprint(&request.doc_id)).join("assets"),
-    };
-    fs::create_dir_all(&assets).map_err(|e| e.to_string())?;
-    let hash = fingerprint(&String::from_utf8_lossy(&bytes));
-    let suffix = format!("-{hash}.{extension}");
-    let existing = fs::read_dir(&assets).map_err(|e| e.to_string())?.filter_map(|entry| entry.ok().map(|e| e.file_name().to_string_lossy().into_owned())).find(|name| name.ends_with(&suffix));
-    if let Some(name) = existing {
-        let path = assets.join(&name);
-        return Ok(SavedImage { relative_path: format!("assets/{name}"), absolute_path: path.to_string_lossy().into_owned(), resource_root: assets.to_string_lossy().into_owned(), bytes: bytes.len() as u64, hash, deduplicated: true });
+    let data_root = root(&app, &window)?;
+    match store_image(&data_root.join("images"), &bytes, &extension, false) {
+        Ok(saved) => Ok(saved),
+        Err(primary) => {
+            let assets = request.directory.map(|directory| PathBuf::from(directory).join("assets"))
+                .unwrap_or_else(|| data_root.join("recovery").join(fingerprint(&request.doc_id)).join("assets"));
+            store_image(&assets, &bytes, &extension, true).map_err(|fallback| format!("图片目录写入失败：{primary}；assets 兜底失败：{fallback}"))
+        }
     }
-    let name = format!("{}{suffix}", date_stamp());
-    let path = assets.join(&name);
-    atomic_write(&path, &bytes)?;
-    Ok(SavedImage { relative_path: format!("assets/{name}"), absolute_path: path.to_string_lossy().into_owned(), resource_root: assets.to_string_lossy().into_owned(), bytes: bytes.len() as u64, hash, deduplicated: false })
+}
+
+fn store_image(directory: &Path, bytes: &[u8], extension: &str, fallback: bool) -> Result<SavedImage, String> {
+    fs::create_dir_all(directory).map_err(|e| e.to_string())?;
+    let hash = format!("{:016x}", bytes.iter().fold(0xcbf29ce484222325u64, |value, byte| (value ^ u64::from(*byte)).wrapping_mul(0x100000001b3)));
+    let name = format!("{hash}.{extension}"); let target = directory.join(&name);
+    let existing = fs::read(&target).ok();
+    if existing.as_deref().is_some_and(|old| old != bytes) { return Err("图片名称冲突，原文件未覆盖".into()); }
+    let deduplicated = existing.is_some();
+    if !deduplicated { atomic_write(&target, bytes)?; }
+    Ok(SavedImage { relative_path: if fallback { format!("assets/{name}") } else { String::new() }, absolute_path: target.to_string_lossy().into_owned(), resource_root: directory.to_string_lossy().into_owned(), bytes: bytes.len() as u64, hash, deduplicated, fallback })
 }
 // 预览与导出按文档的资源根解析相对路径；只读取该根目录内的图片文件。
 #[tauri::command]

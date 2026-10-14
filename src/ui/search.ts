@@ -77,7 +77,7 @@ export function find(view: EditorView, options: SearchOptions, next = false) {
   view.dispatch(view.state.tr.setMeta(key, { options, active }));
   const result = searchState(view);
   if (options.query && result.hits[active]) {
-    const rect = view.coordsAtPos(result.hits[active].from), pane = view.dom.parentElement!, bounds = pane.getBoundingClientRect();
+    const rect = view.coordsAtPos(result.hits[active].from), pane = view.dom.closest<HTMLElement>('#render')!, bounds = pane.getBoundingClientRect();
     if (rect.top < bounds.top || rect.bottom > bounds.bottom) pane.scrollTop += rect.top - bounds.top - bounds.height / 3;
   }
   if (!options.query) return '';

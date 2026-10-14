@@ -139,6 +139,7 @@ fn main() {
         .manage(pending)
         .invoke_handler(tauri::generate_handler![
             take_launch_path,
+            files::pick_images, files::clipboard_image_paths,
             explorer::pick_folder, explorer::list_directory, explorer::create_document,
             export_pdf,
             persistence::write_recovery, persistence::read_recovery, persistence::discard_recovery, persistence::discard_recovery_dir, persistence::save_image, persistence::read_image,
