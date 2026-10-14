@@ -5,7 +5,7 @@ import { icon } from './icons';
 
 // 以可见块及块内像素偏移记录阅读位置，切换宽度后仍定位相同内容。
 export function captureView(doc: DocumentSession, render: EditorView, source: CMView) {
-  if (!doc.readOnly) doc.sourceScroll = { top: source.scrollDOM.scrollTop, left: source.scrollDOM.scrollLeft };
+  if (!doc.readOnly && source.dom.getClientRects().length) doc.sourceScroll = { top: source.scrollDOM.scrollTop, left: source.scrollDOM.scrollLeft };
   if (doc.renderRevision !== doc.revision) return;
   const pane = render.dom.parentElement!, top = pane.getBoundingClientRect().top;
   const block = doc.model.blocks.filter(b => b.node.isTextblock || b.node.isAtom).find(b => {
@@ -40,13 +40,13 @@ export function divider(main: HTMLElement, handle: HTMLElement, options: { initi
   resize(Number.isFinite(options.initial) ? options.initial! : 50);
   return { resize };
 }
-// S-35：全屏 / 专注模式只影响界面可见性，不改变可编辑性与文档状态。
+// S-35：专注只影响界面可见性，不改变可编辑性与文档状态。
 // 工具栏与标题栏在该模式下都被隐藏，因此提供一个悬浮出口按钮，避免用户“进去出不来”。
 export function applyFocusMode(on: boolean) {
   document.body.classList.toggle('focus-mode', on);
   const button = document.getElementById('focus-toggle');
   button?.setAttribute('aria-pressed', String(on));
-  button?.setAttribute('data-tooltip', on ? '退出专注模式 (F11)' : '全屏 / 专注模式 (F11)');
+  button?.setAttribute('data-tooltip', on ? '退出专注模式 (F11)' : '专注 (F11)');
   let exit = document.getElementById('focus-exit');
   if (!exit) {
     exit = document.createElement('button');

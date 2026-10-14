@@ -2,7 +2,17 @@ import hljs from 'highlight.js';
 import { markdown } from './model';
 import { renderDiagramImage } from './render/mermaid';
 import { renderMath, sanitizeHtml, tocHtml, type TocEntry } from './render/markdown';
-import { katexCssForExport } from './render/katex';
+import { codeLanguageName } from './ui/code-language';
+import codeThemeCss from './ui/code-theme.css?inline';
+import { codeTheme, type CodeTheme } from './ui/code-appearance';
+import type { Model } from './model';
+
+export type ExportAppearance = { fontSize?: string; fontFamily?: string; lineHeight?: string; codeThemes?: CodeTheme[] };
+export function exportAppearance(owner: string, model: Model, editor: HTMLElement): ExportAppearance {
+  const style=getComputedStyle(editor);
+  return {fontSize:style.fontSize,fontFamily:style.fontFamily,lineHeight:style.lineHeight,
+    codeThemes:model.blocks.filter(block=>block.type==='opaque'&&block.node.attrs.kind==='code').sort((a,b)=>a.pos-b.pos).map(block=>codeTheme(owner,block.id))};
+}
 
 const validateLink = markdown.validateLink.bind(markdown);
 markdown.validateLink = url => /^data:image\/svg\+xml;base64,/i.test(url) || validateLink(url);
@@ -27,20 +37,30 @@ markdown.renderer.rules.link_open = (tokens, i, options, env, renderer) => {
 export const printCss = `
 @page { size:A4; margin:15mm }
 * { box-sizing:border-box }
+.katex * { box-sizing:content-box }
 html { color:#202632; background:white; font-family:"Microsoft YaHei","Segoe UI",sans-serif; font-size:11pt; line-height:1.65 }
-body { margin:0; overflow-wrap:anywhere }
+body { margin:0; overflow-wrap:anywhere; -webkit-print-color-adjust:exact; print-color-adjust:exact }
 h1,h2,h3 { line-height:1.3; break-after:avoid }
 p { orphans:3; widows:3 }
 pre { padding:10px 12px; border:1px solid #d9e0e8; background:#f6f8fa; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-all; font:9pt/1.55 Consolas,"Microsoft YaHei",monospace; break-inside:auto }
 code { overflow-wrap:anywhere }
+.inline-code { background:#e9e9e9; border-radius:3px; padding:2px 4px; box-shadow:0 1px 1px #0002 }
+.task-item { position:relative; list-style:none; margin:5px 0 }
+.task-item > p { margin:10px 0 }
+.task-toggle { position:absolute; left:-23px; top:6px; width:15px; height:15px; border:1px solid #858585; border-radius:3px; text-align:center; font:11px/13px "Segoe UI","Microsoft YaHei",sans-serif; color:#424242 }
+.code-block { border:1px solid var(--code-border); border-radius:5px; margin:14px 0; }
+.code-header { padding:7px 12px; border-bottom:1px solid var(--code-border); color:var(--code-fg); font:12px/1.5 "Segoe UI","Microsoft YaHei",sans-serif; break-after:avoid; }
+.code-block pre { margin:0; border:0; border-radius:0; background:transparent; color:inherit; }
+.code-block code { font:inherit; color:inherit; background:transparent; }
 table { border-collapse:collapse; width:100%; table-layout:fixed; font-size:10pt; margin:16px 0 }
 th,td { border:1px solid #c6ced8; padding:6px 8px; overflow-wrap:anywhere }
 thead { display:table-header-group } tr { break-inside:avoid }
-img,svg { max-width:100%; height:auto } figure { margin:16px 0; break-inside:avoid }
+img,figure > svg { max-width:100%; height:auto } figure { margin:16px 0; break-inside:avoid }
 blockquote { border-left:3px solid #a9bdcf; margin-left:0; padding-left:15px }
 .raw-html { white-space:pre-wrap } .resource-error { color:#ad2635 }
 mark { background:#fff0a6 }
 .math-block { text-align:center; margin:14px 0; break-inside:avoid }
+.math-block .katex-display { margin:0 }
 .math-error { color:#ad2635; font-size:9pt; white-space:pre-wrap }
 .toc-block { border:1px solid #d9e0e8; border-radius:4px; padding:10px 16px; margin:14px 0; font-size:10pt }
 .toc-block ul { margin:4px 0; padding-left:20px } .toc-block a { color:#202632; text-decoration:none }
@@ -87,10 +107,22 @@ function enhanceStatic(container: HTMLElement, formulas: readonly string[]) {
   }
 }
 
-export async function staticHtml(source: string, resolve?: (src: string) => Promise<string | null>): Promise<string> {
+export async function staticHtml(source: string, resolve?: (src: string) => Promise<string | null>, appearance: ExportAppearance = {}): Promise<string> {
   const container = document.createElement('article');
-  container.innerHTML = markdown.render(source);
+  const env = {};
+  const tokens = markdown.parse(source,env);
+  // 只识别列表项首段源码中的任务前缀，转义的 [ ]、行内代码与后续段落保持原文。
+  for (let index=0;index<tokens.length;index++) {
+    const item=tokens[index], inline=tokens[index+2];
+    if (item.type!=='list_item_open' || tokens[index+1]?.type!=='paragraph_open' || inline?.type!=='inline') continue;
+    const task=/^\[([ xX])\](?:[ \t]+|$)/.exec(inline.content);
+    if (!task || inline.children?.[0]?.type!=='text') continue;
+    item.attrJoin('class','task-item'); item.attrSet('data-checked',String(task[1]!==' '));
+    inline.children[0].content=inline.children[0].content.slice(task[0].length);
+  }
+  container.innerHTML = markdown.renderer.render(tokens,markdown.options,env);
   let sequence = 0;
+  let codeIndex = 0;
   for (const code of container.querySelectorAll('pre > code')) {
     const language = Array.from(code.classList).find(name => name.startsWith('language-'))?.slice(9);
     if (language === 'mermaid') {
@@ -98,7 +130,13 @@ export async function staticHtml(source: string, resolve?: (src: string) => Prom
       const image = await renderDiagramImage(code.textContent || '', `export-${Date.now()}-${sequence++}`, 'default');
       if (!image) continue;
       const figure = document.createElement('figure'); figure.innerHTML = image; code.parentElement!.replaceWith(figure);
-    } else if (language && hljs.getLanguage(language)) code.innerHTML = hljs.highlight(code.textContent || '', { language }).value;
+    } else {
+      if (language && hljs.getLanguage(language)) code.innerHTML = hljs.highlight(code.textContent || '', { language }).value;
+      const wrapper=document.createElement('div'); wrapper.className='code-block';
+      wrapper.dataset.codeTheme=appearance.codeThemes?.[codeIndex++] ?? (document.documentElement.dataset.codeTheme==='dark'?'dark':'light');
+      const header=document.createElement('div'); header.className='code-header'; header.textContent=codeLanguageName(language || 'text');
+      const pre=code.parentElement!; pre.replaceWith(wrapper); wrapper.append(header,pre);
+    }
   }
   for (const img of container.querySelectorAll('img')) {
     const url = img.getAttribute('src')!;
@@ -122,11 +160,38 @@ export async function staticHtml(source: string, resolve?: (src: string) => Prom
   // 原公式单独保存，避免 data-latex 中的 &、< 等实体在过滤时再次转义。
   const formulas = Array.from(container.querySelectorAll<HTMLElement>('.math-inline, .math-block'), element => element.dataset.latex ?? '');
   container.innerHTML = sanitizeHtml(container.innerHTML);
+  for (const item of container.querySelectorAll<HTMLElement>('li.task-item[data-checked]')) {
+    const checked=item.dataset.checked==='true', checkbox=document.createElement('span');
+    checkbox.className='task-toggle'; checkbox.textContent=checked ? '✓' : '';
+    checkbox.setAttribute('role','checkbox'); checkbox.setAttribute('aria-checked',String(checked));
+    item.prepend(checkbox);
+  }
+  for (const code of container.querySelectorAll('code')) {
+    if (!code.closest('pre')) code.classList.add('inline-code');
+  }
   enhanceStatic(container, formulas);
-  await document.fonts.ready;
   // 文档内容已经过白名单；增强器只生成本地受信的公式、目录和脚注标记。
-  const body = container.innerHTML;
   // S-2：公式样式与字体内嵌，导出文件离线可打开。
-  const mathCss = container.querySelector('.katex') ? await katexCssForExport() : '';
-  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:"><title>MDRE 文档快照</title><style>${printCss}</style><style>${mathCss}</style><body>${body}</body></html>`;
+  const mathCss = container.querySelector('.katex') ? await (await import('./render/katex')).katexCssForExport() : '';
+  const styling=document.createElement('div');
+  styling.style.fontSize=appearance.fontSize ?? '16px'; styling.style.fontFamily=appearance.fontFamily ?? '"Microsoft YaHei","Segoe UI",sans-serif'; styling.style.lineHeight=appearance.lineHeight ?? '1.65';
+  // A4 页宽减两侧 15mm：在同一渲染字体下测量，超宽公式只做等比例缩小。
+  container.style.cssText=styling.style.cssText+';position:fixed;left:-10000px;top:0;width:180mm;visibility:hidden;';
+  document.body.append(container);
+  try {
+    await document.fonts.ready;
+    for (const block of container.querySelectorAll<HTMLElement>('.math-block')) {
+      const formula=block.matches('.katex-display') ? block : block.querySelector<HTMLElement>('.katex-display');
+      if (!formula) continue;
+      const content=Array.from(formula.querySelectorAll<HTMLElement>('.katex-html > .base')).reduce((width,base)=>width+base.getBoundingClientRect().width,0);
+      const tag=formula.querySelector<HTMLElement>('.tag');
+      // 内容居中、编号靠右：两边均预留编号宽度，避免编号压到最长公式行。
+      const width=content+(tag ? 2*(tag.getBoundingClientRect().width+parseFloat(styling.style.fontSize)) : 0);
+      if (width>container.clientWidth) block.style.fontSize=`${parseFloat(styling.style.fontSize)*container.clientWidth/width*0.995}px`;
+    }
+  } finally { container.remove(); }
+  const body=container.innerHTML;
+  // CSSOM 序列化后再进行属性转义，字体名中的引号不会破坏快照 HTML。
+  const style=markdown.utils.escapeHtml(styling.style.cssText);
+  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:"><title>MDRE 文档快照</title><style>${printCss}\n${codeThemeCss}</style><style>${mathCss}</style><body style="${style}">${body}</body></html>`;
 }

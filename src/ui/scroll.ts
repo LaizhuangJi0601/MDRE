@@ -68,14 +68,15 @@ export class ScrollSync {
   }
   private sync() {
     const doc = this.document(); if (!doc) return;
-    const context = `${doc.id}:${doc.revision}:${doc.readOnly}`;
+    const renderOnly = doc.readOnly || !this.panes.source.getClientRects().length;
+    const context = `${doc.id}:${doc.revision}:${renderOnly}`;
     if (!this.ready() || doc.composition) { this.preservePending = false; return; }
     if (this.resetPending || context !== this.context) {
       const restored = this.resetPending;
       this.resetPending = false; this.preservePending = false; this.context = context;
-      this.driver = doc.readOnly || (restored && doc.readingAnchor) ? 'render' : doc.selection.active; this.anchor = null;
+      this.driver = renderOnly || (restored && doc.readingAnchor) ? 'render' : doc.selection.active; this.anchor = null;
     }
-    if (doc.readOnly) {
+    if (renderOnly) {
       const segments = this.segments('render');
       if (this.preservePending && this.anchor) this.place('render', this.anchor, segments);
       this.preservePending = false; this.anchor = this.read('render', segments);

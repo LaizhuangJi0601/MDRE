@@ -1,45 +1,26 @@
 import katexCss from 'katex/dist/katex.min.css?raw';
 
-// S-2：导出页只允许 data: 字体，因此把 KaTeX 样式与字体一起内嵌，保证离线可打开。
+// 使用 Vite 实际打包的字体 URL，不能从 ?raw CSS 中直接访问 fonts/ 相对路径。
+const assets = import.meta.glob('../../node_modules/katex/dist/fonts/*.woff2', { eager: true, query: '?url&inline', import: 'default' }) as Record<string, string>;
 let embedded: Promise<string> | null = null;
-const cache = new Map<string, Promise<string | null>>();
-
-async function assetDataUrl(url: string): Promise<string | null> {
-  const cached = cache.get(url);
-  if (cached) return cached;
-  const task = (async () => {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) return null;
-      const blob = await response.blob();
-      const mime = /\.woff2?$/.test(url) ? 'font/woff2' : /\.ttf$/.test(url) ? 'font/ttf' : blob.type || 'application/octet-stream';
-      return await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(new Blob([blob], { type: mime }));
-      });
-    } catch { return null; }
-  })();
-  cache.set(url, task);
-  return task;
-}
-
 export function katexCssForExport(): Promise<string> {
   if (embedded) return embedded;
   embedded = (async () => {
-    const urls = Array.from(new Set(Array.from(katexCss.matchAll(/url\(([^)]+)\)/g)).map(match => match[1].replace(/["']/g, '').trim())));
-    const resolved = new Map<string, string>();
-    for (const url of urls) {
-      if (/^data:/.test(url)) { resolved.set(url, url); continue; }
-      const data = await assetDataUrl(url);
-      if (data) resolved.set(url, data);
-    }
-    return katexCss.replace(/url\(([^)]+)\)/g, (whole, raw: string) => {
-      const key = raw.replace(/["']/g, '').trim();
-      const data = resolved.get(key);
-      return data ? `url(${data})` : whole;
+    const fonts = new Map<string,string>();
+    await Promise.all(Object.entries(assets).map(async ([name,url]) => {
+      if (url.startsWith('data:')) { fonts.set(name.split('/').at(-1)!,url); return; }
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`公式字体读取失败：${name} (${response.status})`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = '';
+      for (let offset=0;offset<bytes.length;offset+=0x8000) binary += String.fromCharCode(...bytes.subarray(offset,offset+0x8000));
+      fonts.set(name.split('/').at(-1)!,`data:font/woff2;base64,${btoa(binary)}`);
+    }));
+    return katexCss.replace(/src:[^;}]+;?/g,source => {
+      const name = /fonts\/([^)'"\s]+\.woff2)/.exec(source)?.[1];
+      if (!name || !fonts.has(name)) throw new Error(`导出缺少公式字体：${name ?? source}`);
+      return `src:url(${fonts.get(name)}) format('woff2');`;
     });
-  })();
+  })().catch(reason => { embedded=null; throw reason; });
   return embedded;
 }

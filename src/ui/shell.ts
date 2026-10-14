@@ -18,9 +18,9 @@ export const shell = `
 <header id="titlebar">
   <img class="app-icon" src="${appIcon}" alt="MDRE" draggable="false">
   <nav id="menubar" aria-label="应用菜单">
-    ${menu('file', '文件', item('new', '新建文档', 'Ctrl+N') + item('open', '打开…', 'Ctrl+O') + '<hr>' + item('recent-menu', '最近打开') + '<div class="menu-popup menu-submenu" id="recent-list" role="menu" aria-label="最近打开" hidden></div><hr>' + item('save', '保存', 'Ctrl+S') + item('save-as', '另存为…', 'Ctrl+Shift+S') + '<hr>' + item('close-tab', '关闭当前标签', 'Ctrl+W'))}
-    ${menu('edit', '编辑', command('undo', '撤销', 'Ctrl+Z', true) + command('redo', '重做', 'Ctrl+Y', true) + '<hr>' + command('find-open', '查找…', 'Ctrl+F') + '<button id="replace-open" data-editable role="menuitem"><span>替换…</span><kbd>Ctrl+H</kbd></button>' + command('goto-line', '跳转到行…', 'Ctrl+G') + '<hr>' + command('copy', '复制完整源码'))}
-    ${menu('view', '查看', command('mode-toggle', '切换编辑 / 阅读模式', 'Ctrl+Shift+V') + command('outline-toggle', '大纲面板', 'Ctrl+Shift+O') + command('focus-toggle', '全屏 / 专注模式', 'F11') + command('raw', '查看源码片段…') + command('refresh', '刷新渲染') + '<hr><div class="menu-field"><label for="theme">颜色主题</label><select id="theme" aria-label="主题"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div><div class="menu-field"><label for="default-mode">默认启动模式</label><select id="default-mode" aria-label="默认启动模式"><option value="edit">编辑模式</option><option value="read">阅读模式</option></select></div>')}
+    ${menu('file', '文件', item('new', '新建文档', 'Ctrl+N') + item('open', '打开…', 'Ctrl+O') + '<hr>' + item('recent-menu', '最近打开文件') + '<div class="menu-popup menu-submenu" id="recent-list" role="menu" aria-label="最近打开文件" hidden></div>' + item('recent-folder-menu', '最近打开文件夹') + '<div class="menu-popup menu-submenu" id="recent-folder-list" role="menu" aria-label="最近打开文件夹" hidden></div><hr>' + item('save', '保存', 'Ctrl+S') + item('save-as', '另存为…', 'Ctrl+Shift+S') + '<hr>' + item('close-tab', '关闭当前标签', 'Ctrl+W'))}
+    ${menu('edit', '编辑', command('undo', '撤销', 'Ctrl+Z', true) + command('redo', '重做', 'Ctrl+Y', true) + command('underline', '下划线', 'Ctrl+U', true) + '<hr>' + command('find-open', '查找…', 'Ctrl+F') + '<button id="replace-open" data-editable role="menuitem"><span>替换…</span><kbd>Ctrl+H</kbd></button>' + command('goto-line', '跳转到行…', 'Ctrl+G') + '<hr>' + command('copy', '复制完整源码'))}
+    ${menu('view', '查看', command('mode-toggle', '切换编辑 / 阅读模式', 'Ctrl+Shift+V') + command('paper-toggle', 'A4 纸张') + command('outline-toggle', '侧栏', 'Ctrl+Shift+O') + command('focus-toggle', '专注', 'F11') + command('raw', '查看源码片段…') + command('refresh', '刷新渲染') + '<hr><div class="menu-field"><label for="theme">颜色主题</label><select id="theme" aria-label="主题"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div><div class="menu-field"><label for="default-mode">默认启动模式</label><select id="default-mode" aria-label="默认启动模式"><option value="edit">编辑模式</option><option value="read">阅读模式</option></select></div>')}
     ${menu('settings', '设置', item('settings-open', '打开设置页面') + '<hr><div class="menu-field"><label for="font-body">正文字体</label><select id="font-body" aria-label="正文字体"></select></div><div class="menu-field"><label for="font-mono">等宽字体</label><select id="font-mono" aria-label="等宽字体"></select></div><div class="menu-field"><label for="font-size-input">正文字号</label><input type="number" id="font-size-input" min="10" max="32" step="1" aria-label="字号"></div><div class="menu-field"><label for="line-height">行距</label><input type="number" id="line-height" min="1" max="3" step="0.05" aria-label="行距"></div><hr><div class="menu-field"><label for="backup-count">保存前保留备份</label><input type="number" id="backup-count" min="0" max="20" step="1" aria-label="备份份数"></div><button id="shortcut-open" role="menuitem"><span>快捷键设置…</span><kbd>配置文件</kbd></button><button id="associate-md" role="menuitem"><span>注册 .md 文件关联</span><kbd>双击打开</kbd></button><button id="open-settings-dir" role="menuitem"><span>打开配置目录</span><kbd></kbd></button>')}
     ${menu('export', '导出', item('html', '导出 HTML…') + item('pdf-open', '导出 PDF…'))}
     <button id="help-menu" class="menu-trigger" type="button" aria-haspopup="dialog" aria-controls="help-dialog">帮助</button>
@@ -31,7 +31,7 @@ export const shell = `
 <div class="toolbar" id="edit-bar" aria-label="编辑工具">
   <div class="toolbar" id="format-toolbar" aria-label="排版工具">
     ${iconButton('undo', 'undo', '撤销', 'Ctrl+Z')}${iconButton('redo', 'redo', '重做', 'Ctrl+Y')}<i class="tool-separator"></i>
-    ${iconButton('bold', 'bold', '粗体', 'Ctrl+B')}${iconButton('italic', 'italic', '斜体', 'Ctrl+I')}${iconButton('strike', 'strike', '删除线')}${iconButton('inline-code', 'inlineCode', '行内代码')}
+    ${iconButton('bold', 'bold', '粗体', 'Ctrl+B')}${iconButton('italic', 'italic', '斜体', 'Ctrl+I')}${iconButton('underline', 'underline', '下划线', 'Ctrl+U')}${iconButton('strike', 'strike', '删除线')}${iconButton('inline-code', 'inlineCode', '行内代码')}
     <div class="dropdown" id="heading"><button id="heading-menu" class="icon-button has-caret" aria-haspopup="menu" aria-expanded="false" aria-label="标题级别" data-tooltip="标题级别 (Ctrl+1~6)">${icon('heading')}<span class="caret"></span></button><div class="dropdown-popup" role="menu" aria-label="标题级别" hidden>${headingItems}</div></div>
     ${iconButton('quote', 'quote', '引用块')}${iconButton('bullet', 'listBullet', '无序列表')}${iconButton('ordered', 'listOrdered', '有序列表')}${iconButton('task', 'task', '任务清单')}
     ${iconButton('link', 'link', '链接', 'Ctrl+K')}${iconButton('table', 'table', '插入表格')}${iconButton('image', 'image', '插入图片', 'Ctrl+V / 拖入')}
@@ -41,9 +41,9 @@ export const shell = `
     ${iconButton('code-block', 'codeBlock', '代码块')}${iconButton('rule', 'rule', '分隔线')}<i class="tool-separator"></i>
     ${iconButton('split', 'split', '在光标处分段')}${iconButton('join', 'join', '合并上一个段落')}${iconButton('up', 'up', '列表项上移')}${iconButton('down', 'down', '列表项下移')}
   </div>
-  <div class="toolbar view-tools" aria-label="查看工具">${iconButton('outline-toggle', 'heading', '大纲', 'Ctrl+Shift+O')}${iconButton('focus-toggle', 'fullscreen', '全屏 / 专注模式', 'F11')}${iconButton('find-open', 'search', '查找', 'Ctrl+F')}${iconButton('raw', 'code', '查看 / 编辑源码片段')}${iconButton('refresh', 'refresh', '刷新渲染')}</div>
+  <div class="toolbar view-tools" aria-label="查看工具">${iconButton('paper-toggle', 'paper', 'A4 纸张')}<button id="source-toggle" class="icon-button" aria-label="隐藏源码" data-tooltip="隐藏源码" aria-controls="source-pane" aria-pressed="true" data-editable>${icon('columns')}</button>${iconButton('outline-toggle', 'sidebar', '侧栏', 'Ctrl+Shift+O')}${iconButton('focus-toggle', 'fullscreen', '专注', 'F11')}${iconButton('find-open', 'search', '查找', 'Ctrl+F')}${iconButton('raw', 'code', '源码片段')}${iconButton('refresh', 'refresh', '刷新渲染')}</div>
 </div>
-<div class="tabs-bar"><nav id="tabs" aria-label="文档标签"><button id="new-welcome" aria-label="新建欢迎页" data-tooltip="新建欢迎页">${icon('plus')}</button></nav></div>
+<div class="tabs-bar"><div id="sidebar-title">侧栏导航</div><nav id="tabs" aria-label="文档标签"><button id="new-welcome" aria-label="新建欢迎页" data-tooltip="新建欢迎页">${icon('plus')}</button></nav></div>
 <input type="file" id="file" accept=".md,.markdown,.txt" hidden><input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/svg+xml" multiple hidden><button id="copy" hidden>复制源码</button><button id="mode-toggle" hidden>切换编辑 / 阅读模式</button>
 <div class="toolbar" id="search-bar" hidden>
   <input id="find" placeholder="查找渲染文字" aria-label="查找"><span id="find-result" role="status"></span>${iconButton('search', 'arrowDown', '下一个匹配', 'Enter')}
@@ -52,16 +52,23 @@ export const shell = `
   <label class="find-option"><input type="checkbox" id="find-word" aria-label="全字匹配">全字匹配</label>
   <span id="replace-controls"><input id="replace" placeholder="替换为" aria-label="替换为">${iconButton('replace-one', 'replace', '替换一次')}${iconButton('replace-all', 'replaceAll', '全部替换')}</span>${iconButton('find-close', 'close', '关闭查找', 'Esc')}
 </div>
-<section id="welcome" hidden><div><h1>MDRE</h1><p>打开 Markdown 文件，或开始一篇新文档</p><p>源码与渲染编辑模式，改动只落在最小范围</p><button id="welcome-new" class="primary-button">新建文档 <kbd>Ctrl+N</kbd></button><button id="welcome-open">打开文件… <kbd>Ctrl+O</kbd></button></div></section>
+<section id="welcome" hidden><div><h1>MDRE</h1><p>打开 Markdown 文件，或开始一篇新文档</p><button id="welcome-new" class="primary-button">新建文档 <kbd>Ctrl+N</kbd></button><button id="welcome-open">打开文件… <kbd>Ctrl+O</kbd></button></div></section>
 <main id="panes" class="has-outline">
-  <aside id="outline-panel" aria-label="大纲">
-    <div class="outline-head">${icon('heading')}<span>大纲</span><span id="outline-count"></span><button id="outline-close" class="icon-button" aria-label="收起大纲" data-tooltip="收起大纲">${icon('close')}</button></div>
+  <aside id="outline-panel" aria-label="侧栏">
+    <div class="sidebar-actions">
+      ${iconButton('sidebar-new', 'newFile', '新建文件')}${iconButton('sidebar-open', 'open', '打开文件')}${iconButton('folder-open', 'openFolder', '打开文件夹')}
+    </div>
+    <div class="sidebar-tabs" role="tablist" aria-label="侧栏内容"><button id="sidebar-files" role="tab" aria-controls="files-view">文件列表</button><button id="sidebar-outline" role="tab" aria-controls="outline-view">大纲导航</button></div>
+    <div id="files-view" role="tabpanel" aria-labelledby="sidebar-files" hidden><div id="folder-files"><div class="folder-head"><span id="folder-path" title="尚未打开文件夹">尚未打开文件夹</span>${iconButton('folder-refresh', 'refresh', '刷新文件列表')}</div><div id="file-list"></div></div><div id="file-list-divider" role="separator" tabindex="0" aria-label="调整文件列表与已打开文档高度" aria-orientation="horizontal"></div><div id="opened-files"><div class="opened-head">已打开的文档</div><div id="open-documents"></div></div></div>
+    <div id="outline-view" role="tabpanel" aria-labelledby="sidebar-outline">    <div class="outline-head">${icon('heading')}<span>大纲导航</span><span id="outline-count"></span><button id="outline-collapse" class="icon-button" aria-label="折叠大纲" data-tooltip="折叠大纲" aria-expanded="true">${icon('chevronUp')}</button></div>
     <div id="outline-list"></div>
     <p id="outline-empty" class="dialog-hint" hidden>当前文档没有标题</p>
+    </div>
+    <div id="sidebar-resizer" role="separator" tabindex="0" aria-label="调整侧栏宽度" aria-orientation="vertical"></div>
   </aside>
   <section class="pane" id="source-pane"><div class="pane-title">${icon('markdown')}<span>Markdown 源码</span></div><div id="source"></div></section>
   <div id="divider" role="separator" aria-label="调整两栏宽度，双击重置" aria-orientation="vertical" aria-valuemin="20" aria-valuemax="80" tabindex="0"></div>
-  <section class="pane" id="render-pane"><div class="pane-title">${icon('columns')}<span id="render-title">可编辑渲染</span><span id="preview-state"></span></div><div id="render"></div></section>
+  <section class="pane" id="render-pane"><div class="pane-title">${icon('columns')}<span id="render-title">渲染页面</span><span id="preview-state"></span></div><div id="render"></div><span id="paper-zoom" hidden aria-label="纸张缩放比例"></span></section>
   <div id="block-handle" hidden>
     ${iconButton('handle-up', 'chevronUp', '上移同级块')}${iconButton('handle-down', 'chevronDown', '下移同级块')}${iconButton('handle-delete', 'trash', '删除块')}
     <div class="dropdown" id="convert"><button id="handle-convert" class="icon-button has-caret" aria-haspopup="menu" aria-expanded="false" aria-label="转为" data-tooltip="转为">${icon('swap')}<span class="caret"></span></button><div class="dropdown-popup" role="menu" aria-label="转为" hidden>${convertItems}</div></div>

@@ -1,8 +1,8 @@
 import { Node as PMNode } from 'prosemirror-model';
 import { Transform } from 'prosemirror-transform';
 import { cellSpans, parse, schema, type Block, type Model } from './model';
-import { validated, type Patch } from './edits';
-import { lineEnding } from './blocks';
+import { validated, validatedStructure, type Patch } from './edits';
+import { lineEnding, withFollowingParagraph } from './blocks';
 
 type Grid = { table: Block; header: string[]; delimiter: string[]; body: string[][]; aligns: string[] };
 type Cells = { header: string[]; delimiter: string[]; body: string[][] };
@@ -63,7 +63,7 @@ function blockNewline(model: Model, block: Block | null): string {
   return ending ?? lineEnding(model, 0);
 }
 
-export function insertTable(model: Model, after: Block | null, rows: number, columns: number): Patch {
+export function insertTable(model: Model, after: Block | null, rows: number, columns: number, followingParagraph = false): Patch {
   if (!Number.isInteger(rows) || rows < 0 || rows > 50) throw new Error('表格数据行数需为 0–50 的整数。');
   if (!Number.isInteger(columns) || columns < 1 || columns > 12) throw new Error('表格列数需为 1–12 的整数。');
   const newline = blockNewline(model, after);
@@ -72,14 +72,15 @@ export function insertTable(model: Model, after: Block | null, rows: number, col
   if (after?.type === 'paragraph' && !after.node.content.size && model.source.trim() === '') {
     const grid: Grid = { table: after, header: cells.header, delimiter: cells.delimiter, body: cells.body, aligns: Array(columns).fill('') };
     const edit = { from: model.source.startsWith('\uFEFF') ? 1 : 0, to: model.source.length, insert: [cells.header, cells.delimiter, ...cells.body].map(row => `| ${row.join(' | ')} |`).join(newline) + newline };
-    validated(model, edit, new Transform(model.doc).replaceWith(after.pos, after.pos + after.node.nodeSize, buildTable(grid, cells)).doc); return edit;
+    const result = validatedStructure(model, edit, new Transform(model.doc).replaceWith(after.pos, after.pos + after.node.nodeSize, buildTable(grid, cells)).doc).edit;
+    return followingParagraph ? withFollowingParagraph(model, result, after.pos) : result;
   }
   const terminated = /(?:\r\n|\r|\n)$/.test(model.source.slice(0, at)) ? newline : newline + newline;
   const edit: Patch = { from: at, to: at, insert: terminated + [cells.header, cells.delimiter, ...cells.body].map(row => `| ${row.join(' | ')} |`).join(newline) + newline };
   const grid: Grid = { table: after ?? model.blocks[0], header: cells.header, delimiter: cells.delimiter, body: cells.body, aligns: Array(columns).fill('') };
   const expected = new Transform(model.doc).insert(after ? after.pos + after.node.nodeSize : model.doc.content.size, buildTable(grid, cells)).doc;
-  validated(model, edit, expected);
-  return edit;
+  const result = validatedStructure(model, edit, expected).edit;
+  return followingParagraph ? withFollowingParagraph(model, result, after ? after.pos + after.node.nodeSize : model.doc.content.size) : result;
 }
 
 export function insertRow(model: Model, cellId: string, offset: 0 | 1): Patch {

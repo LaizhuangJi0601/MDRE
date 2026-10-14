@@ -24,3 +24,7 @@ src-tauri/gen/
 *.bak
 .env
 .env.*
+/output/
+/VscodeExtension/
+/.agents/
+/.codex/

@@ -4,8 +4,8 @@ import { Fragment, Node as PMNode } from 'prosemirror-model';
 import { Transform } from 'prosemirror-transform';
 import { lift, splitBlock, wrapIn } from 'prosemirror-commands';
 import { liftListItem, sinkListItem, wrapInList } from 'prosemirror-schema-list';
-import { normalize, schema, type Block, type Model } from './model';
-import { setHeading, validated, type Patch } from './edits';
+import { normalize, parse, semantics, schema, type Block, type Model } from './model';
+import { setHeading, validated, validatedStructure, renderedStructure, difference, patch, type Patch } from './edits';
 import { renderToSource } from './mapping';
 
 export type BlockKind = 'paragraph' | 'heading' | 'quote' | 'bullet' | 'ordered' | 'task' | 'code' | 'hr';
@@ -58,12 +58,20 @@ function indented(model: Model, block: Block, delta: number): Patch {
 export function convertBlock(model: Model, id: string, kind: BlockKind, options: { level?: number; info?: string; followingParagraph?: boolean } = {}): Patch {
   const block = model.blocks.find(b => b.id === id);
   if (!block) throw new Error('未找到目标块。');
-  if (kind === 'hr') return insertRule(model, block);
+  if (kind === 'hr') {
+    const edit = insertRule(model, block);
+    const position = block.node.isTextblock && !block.node.content.size ? block.pos : block.pos + block.node.nodeSize;
+    return options.followingParagraph ? withFollowingParagraph(model, edit, position) : edit;
+  }
   if (!block.node.isTextblock || block.type === 'table_cell') throw new Error('“转为”只作用于段落与标题；其他结构请在源码栏调整。');
   if (block.parent !== null) throw new Error('容器内部的“转为”请在源码栏调整。');
   const raw = model.source.slice(block.from, block.to);
   const ending = endingOf(raw);
   const body = ending ? raw.slice(0, -ending.length) : raw;
+  const finish = (edit: Patch, expected: PMNode) => {
+    const result = validatedStructure(model, edit, expected).edit;
+    return options.followingParagraph ? withFollowingParagraph(model, result, block.pos) : result;
+  };
   if (kind === 'paragraph') {
     if (block.type === 'paragraph') return { from: block.from, to: block.from, insert: '' };
     const prefix = /^(?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?/.exec(raw)![0];
@@ -76,9 +84,8 @@ export function convertBlock(model: Model, id: string, kind: BlockKind, options:
   }
   if (kind === 'heading') return setHeading(model, block.pos + 1, options.level ?? 1);
   if (kind === 'quote') {
-    const edit: Patch = { from: block.from, to: block.to, insert: body.split(/\r\n|\r|\n/).map(line => `> ${line}`).join(ending) + ending };
-    validated(model, edit, expectedFrom(model.doc, block.pos + 1, wrapIn(schema.nodes.blockquote)));
-    return edit;
+    const edit: Patch = { from: block.from, to: block.to, insert: body.split(/\r\n|\r|\n/).map(line => `> ${line}`).join(ending || lineEnding(model, block.from)) + ending };
+    return finish(edit, expectedFrom(model.doc, block.pos + 1, wrapIn(schema.nodes.blockquote)));
   }
   if (kind === 'code') {
     const info = options.info ?? '';
@@ -101,15 +108,30 @@ export function convertBlock(model: Model, id: string, kind: BlockKind, options:
   }
   const insert = kind === 'ordered' ? '1. ' : kind === 'task' ? '- [ ] ' : '- ';
   const paragraph = block.type === 'heading' && kind === 'task' ? schema.nodes.paragraph.create({ id: block.id }, block.node.content) : block.node;
-  const headingEdit = block.type === 'heading' && kind === 'task' ? convertBlock(model, id, 'paragraph') : null;
-  const edit: Patch = headingEdit
-    ? { from: block.from, to: block.to, insert: insert + raw.slice(0, headingEdit.from - block.from) + headingEdit.insert + raw.slice(headingEdit.to - block.from) }
-    : { from: block.from, to: block.from, insert };
   const expected = kind === 'task'
     ? new Transform(model.doc).replaceWith(block.pos, block.pos + block.node.nodeSize, schema.nodes.bullet_list.create({ id: '' }, schema.nodes.list_item.create({ id: '', checked: false }, [paragraph]))).doc
     : expectedFrom(model.doc, block.pos + 1, wrapInList(kind === 'ordered' ? schema.nodes.ordered_list : schema.nodes.bullet_list));
-  validated(model, edit, expected);
-  return edit;
+  const edit: Patch = block.type === 'heading' && kind === 'task'
+    ? renderedStructure(model, expected).edit
+    : { from: block.from, to: block.from, insert };
+  return finish(edit, expected);
+}
+
+// 与代码块一致：插入后的空段是独立根节点，与块插入合并为一次源码提交。
+export function withFollowingParagraph(model: Model, edit: Patch, position: number): Patch {
+  const next = parse(patch(model.source, edit), model, edit);
+  const block = next.blocks.find(item => item.parent === null && item.pos === position);
+  if (!block) throw new Error('未找到插入后的顶层块。');
+  const following = next.blocks.filter(item => item.parent === null && item.pos > position).sort((a,b) => a.pos-b.pos)[0];
+  if (following?.type === 'paragraph' && !following.node.content.size) return edit;
+  const newline = next.source.includes('\r\n') ? '\r\n' : '\n';
+  const ending = /(?:\r\n|\r|\n)(?:[ \t]*(?:\r\n|\r|\n))*$/.exec(next.source.slice(block.from, block.to))?.[0] ?? '';
+  const gap = next.source.slice(block.to, following?.from ?? next.source.length);
+  const count = ((ending + gap).match(/\r\n|\r|\n/g) ?? []).length;
+  const insert = newline.repeat(Math.max(0, (following ? 4 : 2) - count));
+  const expected = new Transform(next.doc).insert(block.pos + block.node.nodeSize, schema.nodes.paragraph.create({id:''})).doc;
+  const result = validated(next, {from:block.to,to:block.to,insert}, expected);
+  return validated(model, difference(model.source, result.source), expected).edit;
 }
 
 function insertRule(model: Model, block: Block): Patch {
@@ -117,12 +139,11 @@ function insertRule(model: Model, block: Block): Patch {
   const rule = schema.nodes.opaque.create({ id: '', kind: 'hr', raw: '---' + newline, content: '', info: '' });
   if (block.node.isTextblock && block.type !== 'table_cell' && block.node.textContent === '') {
     const edit: Patch = { from: block.from, to: block.to, insert: '---' + newline };
-    validated(model, edit, new Transform(model.doc).replaceWith(block.pos, block.pos + block.node.nodeSize, rule).doc);
-    return edit;
+    return validatedStructure(model, edit, new Transform(model.doc).replaceWith(block.pos, block.pos + block.node.nodeSize, rule).doc).edit;
   }
-  const edit: Patch = { from: block.to, to: block.to, insert: newline + '---' + newline };
-  validated(model, edit, new Transform(model.doc).insert(block.pos + block.node.nodeSize, rule).doc);
-  return edit;
+  const separator = /(?:\r\n|\r|\n)$/.test(model.source.slice(0, block.to)) ? newline : newline + newline;
+  const edit: Patch = { from: block.to, to: block.to, insert: separator + '---' + newline };
+  return validatedStructure(model, edit, new Transform(model.doc).insert(block.pos + block.node.nodeSize, rule).doc).edit;
 }
 
 export function moveBlock(model: Model, id: string, direction: -1 | 1): Patch {
@@ -149,8 +170,10 @@ export function deleteBlock(model: Model, id: string): Patch {
   const edit: Patch = { from, to, insert: '' };
   const removed = new Transform(model.doc).delete(block.pos, block.pos + block.node.nodeSize).doc;
   const expected = removed.childCount ? removed : schema.nodes.doc.create(null, [schema.nodes.paragraph.create({ id: 'empty' })]);
-  validated(model, edit, expected);
-  return edit;
+  const next = parse(model.source.slice(0, from) + model.source.slice(to), model, edit);
+  if (JSON.stringify(semantics(next.doc)) === JSON.stringify(semantics(expected))) return edit;
+  // 块删除后，独立空段可能成为文首空段；按相邻块重新编码空行，保留段落本身。
+  return renderedStructure(model, expected).edit;
 }
 
 export function splitListItemAt(model: Model, pos: number): Patch {

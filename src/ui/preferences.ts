@@ -18,7 +18,19 @@ export function setupPreferences(options: Options) {
       <label>正文字号（px）<input name="font_size" type="number" min="10" max="32" step="1" required></label>
       <label>行距<input name="line_height" type="number" min="1" max="3" step="0.05" required></label>
     </div></fieldset>
+    <fieldset><legend>纸张与图片</legend><div class="settings-grid">
+      <label>默认 A4 纸张<select name="paper_enabled"><option value="false">关闭（随窗口排版）</option><option value="true">开启</option></select></label>
+      <label>A4 排版方式<select name="paper_layout"><option value="continuous">连续排版</option><option value="paged">分页排版</option></select></label>
+      <label>分页正文对齐<select name="paper_align"><option value="left">左对齐</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label>
+      <label>默认图片显示<select name="image_layout"><option value="fit">适应正文宽度</option><option value="natural">原始尺寸（超宽缩小）</option></select></label>
+    </div><p class="dialog-hint">A4 在编辑和阅读模式中均可使用；Ctrl＋滚轮缩放，比例显示在渲染页面右下角。分页显示页码，并按可用宽度每行显示 1–3 页；正文默认两端对齐，可在此调整。</p></fieldset>
+    <fieldset><legend>侧栏导航</legend><div class="settings-grid">
+      <label>侧栏宽度（px）<input name="sidebar_width" type="number" min="180" max="420" step="1" required></label>
+      <label>默认大纲状态<select name="outline_collapsed"><option value="false">展开</option><option value="true">折叠</option></select></label>
+      <label data-desktop-setting>文件列表区域（%）<input name="file_list_ratio" type="number" min="20" max="80" step="1" required></label>
+    </div><p class="dialog-hint">拖动侧栏右边缘可调整宽度；大纲标题旁的箭头用于折叠和展开。</p></fieldset>
     <fieldset><legend>编辑与文件</legend><div class="settings-grid">
+      <label>默认显示源码栏<select name="show_source"><option value="false">关闭（仅显示富文本）</option><option value="true">开启（源码与富文本分栏）</option></select></label>
       <label>源码栏宽度（%）<input name="split" type="number" min="20" max="80" step="1" required></label>
       <label>保存前备份份数<input name="backup_count" type="number" min="0" max="20" step="1" required></label>
     </div>
@@ -26,6 +38,7 @@ export function setupPreferences(options: Options) {
     <fieldset><legend>快捷键</legend><p class="dialog-hint">点入后按组合键；Esc 恢复该项默认值。</p><div id="settings-shortcuts" class="shortcut-list"></div></fieldset>
   </form><div id="settings-error" role="alert"></div><div class="dialog-actions"><button id="settings-cancel">取消</button><button id="settings-save" class="primary-button">保存设置</button></div>`;
   document.body.append(dialog);
+  if (!document.getElementById('sidebar-files')) { dialog.querySelectorAll<HTMLElement>('[data-desktop-setting], .settings-tools, #settings-tool-status').forEach(element => element.hidden = true); }
   const form = dialog.querySelector<HTMLFormElement>('form')!;
   const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement;
   const cancel = dialog.querySelector<HTMLButtonElement>('#settings-cancel')!;
@@ -37,7 +50,7 @@ export function setupPreferences(options: Options) {
       const select = field(name) as HTMLSelectElement;
       select.replaceChildren(...[...new Set(['', current[name], ...options.fonts(mono)])].map(value => new Option(value || '默认', value)));
     }
-    for (const name of ['theme', 'code_theme', 'default_mode', 'font_body', 'font_mono', 'font_size', 'line_height', 'split', 'backup_count'] as const) field(name).value = String(current[name]);
+    for (const name of ['theme', 'code_theme', 'default_mode', 'show_source', 'font_body', 'font_mono', 'font_size', 'line_height', 'split', 'backup_count', 'paper_enabled', 'paper_layout', 'paper_align', 'image_layout', 'sidebar_width', 'file_list_ratio', 'outline_collapsed'] as const) field(name).value = String(current[name]);
     dialog.querySelector('#settings-error')!.textContent = ''; dialog.querySelector('#settings-tool-status')!.textContent = '';
     dialog.querySelector('#settings-shortcuts')!.replaceChildren(...shortcutCommands.map(command => {
       const row = document.createElement('label'); row.className = 'shortcut-row'; row.append(command.label);
@@ -52,14 +65,16 @@ export function setupPreferences(options: Options) {
       };
       row.append(input); return row;
     }));
-    options.open(dialog); field('theme').focus();
+    options.open(dialog); field('theme').focus({ preventScroll: true }); form.scrollTop = 0;
+    dialog.querySelector<HTMLElement>('.dialog-content')?.scrollTo(0, 0);
   };
   dialog.querySelector<HTMLButtonElement>('#settings-save')!.onclick = async () => {
     if (!form.reportValidity()) return;
     const button = dialog.querySelector<HTMLButtonElement>('#settings-save')!; button.disabled = cancel.disabled = true;
     const patch: Partial<Settings> = {
       theme: field('theme').value as Settings['theme'], code_theme: field('code_theme').value as Settings['code_theme'], default_mode: field('default_mode').value as Settings['default_mode'], font_body: field('font_body').value, font_mono: field('font_mono').value,
-      font_size: Number(field('font_size').value), line_height: Number(field('line_height').value), split: Number(field('split').value), backup_count: Number(field('backup_count').value), shortcuts: {},
+      paper_enabled: field('paper_enabled').value === 'true', paper_layout: field('paper_layout').value as Settings['paper_layout'], paper_align: field('paper_align').value as Settings['paper_align'], image_layout: field('image_layout').value as Settings['image_layout'], sidebar_width: Number(field('sidebar_width').value), file_list_ratio: Number(field('file_list_ratio').value), outline_collapsed: field('outline_collapsed').value === 'true',
+      show_source: field('show_source').value === 'true', font_size: Number(field('font_size').value), line_height: Number(field('line_height').value), split: Number(field('split').value), backup_count: Number(field('backup_count').value), shortcuts: {},
     };
     for (const input of dialog.querySelectorAll<HTMLInputElement>('[data-shortcut]')) {
       const command = shortcutCommands.find(command => command.id === input.dataset.shortcut)!;

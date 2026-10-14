@@ -3,10 +3,13 @@ import type { EditorView, NodeView } from 'prosemirror-view';
 import { markdown } from '../model';
 import hljs from 'highlight.js';
 import { codeLanguages, codeLanguageName } from './code-language';
+import { icon } from './icons';
+import { codeTheme, explicitCodeTheme, toggleCodeTheme } from './code-appearance';
+import './code-theme.css';
 
 // 原子块的源码编辑器位于渲染页内；输入法提交后才写回共享文档。
 export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => number | undefined,
-  options: { docId?: () => string; readOnly: () => boolean; write: (pos: number, raw: string, final?: boolean) => boolean; fail: (reason: unknown) => void; history: (redo: boolean) => void; after: (pos: number) => void; composing: (active: boolean) => void; finished: () => void }): NodeView {
+  options: { docId?: () => string; readOnly: () => boolean; write: (pos: number, raw: string, final?: boolean) => boolean; fail: (reason: unknown) => void; history: (redo: boolean) => void; after: (pos: number) => void; remove: (pos: number) => void; copy: (text: string) => Promise<void>; composing: (active: boolean) => void; finished: () => void }): NodeView {
   let node = initial, composing = false, pending = false;
   const owner = options.docId?.();
   const inline = node.type.name === 'raw_inline';
@@ -28,6 +31,18 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
   const header = document.createElement('div'); header.className = 'code-header';
   const fold = document.createElement('button'); fold.className = 'code-toggle';
   header.append(language, fold);
+  const actions = document.createElement('div'); actions.className = 'code-actions';
+  const button = (name: 'contrast' | 'trash' | 'copy', className: string, title: string) => {
+    const control = document.createElement('button'); control.type = 'button'; control.className = `icon-button ${className}`;
+    control.innerHTML = icon(name); control.title = title; control.dataset.tooltip = title; control.setAttribute('aria-label',title); actions.append(control); return control;
+  };
+  const themeButton = button('contrast','code-theme-toggle','切换代码块深浅主题');
+  const deleteButton = button('trash','code-delete','删除代码块');
+  const copyButton = button('copy','code-copy','复制全部代码');
+  header.append(actions);
+  themeButton.onclick = () => { dom.dataset.codeTheme = toggleCodeTheme(owner,String(node.attrs.id)); themeButton.setAttribute('aria-pressed',String(dom.dataset.codeTheme === 'dark')); };
+  deleteButton.onclick = () => { const pos = getPos(); if (typeof pos === 'number' && !options.readOnly()) options.remove(pos); };
+  copyButton.onclick = () => { void options.copy(isCode() ? input.value : String(node.attrs.content)).catch(options.fail); };
   const gutter = document.createElement('div'); gutter.className = 'code-line-numbers'; gutter.setAttribute('aria-hidden', 'true');
   const measure = document.createElement('div'); measure.className = 'code-line-measure'; measure.setAttribute('aria-hidden', 'true');
   editor.append(gutter, measure);
@@ -87,6 +102,10 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
   }
   function paint() {
     const readonly = options.readOnly(); input.readOnly = readonly; language.disabled = readonly;
+    deleteButton.disabled = readonly;
+    const theme=explicitCodeTheme(owner,String(node.attrs.id));
+    if(theme) dom.dataset.codeTheme=theme; else delete dom.dataset.codeTheme;
+    themeButton.setAttribute('aria-pressed',String(codeTheme(owner,String(node.attrs.id)) === 'dark'));
     dom.querySelectorAll<HTMLButtonElement>('.inline-after').forEach(button => button.disabled = readonly);
     label.textContent = inline ? '内联 HTML' : `${node.attrs.kind} · 在此直接编辑`;
     const info = fenced() ? String(node.attrs.info ?? '') : 'text';
