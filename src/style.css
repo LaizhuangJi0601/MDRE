@@ -420,3 +420,19 @@ main.has-outline { --outline-width:var(--sidebar-width,216px); }
 #render.paper-paged .ProseMirror table { border-collapse:separate; border-spacing:0; }
 #render.paper-paged .ProseMirror p { text-align:var(--paper-align,justify); }
 #settings-dialog { width:min(960px,calc(100vw - 48px)); height:min(640px,calc(100vh - 48px)); max-height:calc(100vh - 48px); }
+
+/* 工具栏各组不收缩，滚轮负责访问超出窗口的按钮。 */
+#edit-bar > .toolbar, .tool-group { flex-shrink:0; }
+#render.paper-paged { overflow-anchor:none; }
+/* 两端对齐必须允许浏览器分配普通空格的间距，连续与分页正文一致。 */
+#render.paper-mode .ProseMirror p { white-space:normal; text-align:var(--paper-align,justify); }
+:root[data-image-layout="fit"] .ProseMirror img[data-src] { width:100%!important; height:auto; max-height:none; }
+/* 专注出口和纸张信息各占一个角落。 */
+#focus-exit { bottom:auto; top:16px; }
+
+/* HTML 内容图形使用自身尺寸，避免继承工具栏图标的 18px 尺寸。 */
+.inline-preview svg { width:auto; height:auto; max-width:100%; pointer-events:auto; }
+.inline-preview svg:not([width]) { width:100%; }
+.inline-preview input, .inline-preview select, .inline-preview textarea { font:inherit; }
+.raw-inline-editor .inline-preview { display:inline-block; }
+.raw-inline-editor .inline-preview:empty { display:none; }

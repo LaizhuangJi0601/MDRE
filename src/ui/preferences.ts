@@ -21,7 +21,7 @@ export function setupPreferences(options: Options) {
     <fieldset><legend>纸张与图片</legend><div class="settings-grid">
       <label>默认 A4 纸张<select name="paper_enabled"><option value="false">关闭（随窗口排版）</option><option value="true">开启</option></select></label>
       <label>A4 排版方式<select name="paper_layout"><option value="continuous">连续排版</option><option value="paged">分页排版</option></select></label>
-      <label>分页正文对齐<select name="paper_align"><option value="left">左对齐</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label>
+      <label>A4 正文对齐<select name="paper_align"><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label>
       <label>默认图片显示<select name="image_layout"><option value="fit">适应正文宽度</option><option value="natural">原始尺寸（超宽缩小）</option></select></label>
     </div><p class="dialog-hint">A4 在编辑和阅读模式中均可使用；Ctrl＋滚轮缩放，比例显示在渲染页面右下角。分页显示页码，并按可用宽度每行显示 1–3 页；正文默认两端对齐，可在此调整。</p></fieldset>
     <fieldset><legend>侧栏导航</legend><div class="settings-grid">

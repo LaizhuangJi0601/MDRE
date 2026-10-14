@@ -1,5 +1,14 @@
 // 每组按钮始终单行排列，分类文字位于下方。
 export function groupToolbar() {
+  const bar = document.getElementById('edit-bar')!;
+  bar.addEventListener('wheel', event => {
+    // 竖向滚轮转成横向移动，触控板横向滚动保持原方向。
+    if (event.ctrlKey || bar.scrollWidth <= bar.clientWidth) return;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    const distance = delta * (event.deltaMode === 1 ? 32 : event.deltaMode === 2 ? bar.clientWidth : 1);
+    if (!distance) return;
+    event.preventDefault(); bar.scrollLeft += distance;
+  }, { passive: false });
   const toolbar = document.getElementById('format-toolbar')!;
   const groups: [string, string[]][] = [
     ['历史', ['undo', 'redo']],

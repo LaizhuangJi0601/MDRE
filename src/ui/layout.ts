@@ -7,7 +7,7 @@ import { icon } from './icons';
 export function captureView(doc: DocumentSession, render: EditorView, source: CMView) {
   if (!doc.readOnly && source.dom.getClientRects().length) doc.sourceScroll = { top: source.scrollDOM.scrollTop, left: source.scrollDOM.scrollLeft };
   if (doc.renderRevision !== doc.revision) return;
-  const pane = render.dom.parentElement!, top = pane.getBoundingClientRect().top;
+  const pane = render.dom.closest<HTMLElement>('#render')!, top = pane.getBoundingClientRect().top;
   const block = doc.model.blocks.filter(b => b.node.isTextblock || b.node.isAtom).find(b => {
     const dom = render.nodeDOM(b.pos);
     return dom instanceof HTMLElement && dom.getBoundingClientRect().bottom > top;
@@ -22,7 +22,7 @@ export function restoreView(doc: DocumentSession, render: EditorView, source: CM
   const block = leaves.find(b => b.id === anchor.block && b.from === anchor.source) ?? leaves.find(b => b.from >= anchor.source);
   const dom = block && render.nodeDOM(block.pos);
   if (dom instanceof HTMLElement) {
-    const pane = render.dom.parentElement!;
+    const pane = render.dom.closest<HTMLElement>('#render')!;
     pane.scrollTop += dom.getBoundingClientRect().top - pane.getBoundingClientRect().top - anchor.offset;
   }
 }

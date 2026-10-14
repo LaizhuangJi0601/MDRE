@@ -1,7 +1,7 @@
 import type { EditorView as CMView } from '@codemirror/view';
 import type { EditorView } from 'prosemirror-view';
 import type { DocumentSession } from '../session';
-import { viewOffset } from '../mapping';
+import { viewOffset, sourceToRender, renderToSource } from '../mapping';
 import { captureView } from './layout';
 
 type Side = 'source' | 'render';
@@ -19,7 +19,7 @@ export class ScrollSync {
   private preservePending = false;
   private panes: Record<Side, HTMLElement>;
   constructor(private document: () => DocumentSession, private render: EditorView, private source: CMView, private ready: () => boolean) {
-    this.panes = { source: source.scrollDOM, render: render.dom.parentElement! };
+    this.panes = { source: source.scrollDOM, render: render.dom.closest<HTMLElement>('#render')! };
     for (const side of ['source', 'render'] as const) for (const event of ['wheel', 'pointerdown', 'touchstart', 'keydown']) this.panes[side].addEventListener(event, () => { this.driver = side; }, { passive: true });
     for (const side of ['source', 'render'] as const) this.panes[side].addEventListener('scroll', () => {
       const top = this.panes[side].scrollTop, expected = this.expected.get(side); this.expected.delete(side);
@@ -66,15 +66,75 @@ export class ScrollSync {
     if (Math.abs(pane.scrollTop - top) < .5) return;
     pane.scrollTop = top; this.expected.set(side, pane.scrollTop);
   }
+  private scrollTo(side: Side, top: number) {
+    const pane = this.panes[side], target = Math.max(0, Math.min(top, pane.scrollHeight - pane.clientHeight));
+    if (Math.abs(pane.scrollTop - target) < .5) return;
+    pane.scrollTop = target; this.expected.set(side, pane.scrollTop);
+  }
+  private paperSync() {
+    const doc = this.document(), from = this.panes[this.driver], follower = this.driver === 'source' ? 'render' : 'source';
+    if (from.scrollTop < 1) { this.scrollTo(follower, 0); return; }
+    if (this.driver === 'source') {
+      const bounds = from.getBoundingClientRect();
+      // 读取实际折行位置，避免长源码行被当成整个段落的开头。
+      const pos = this.source.posAtCoords({ x: bounds.left + 64, y: bounds.top + 8 }, false)
+        ?? this.source.lineBlockAtHeight(bounds.top - this.source.documentTop + 8).from;
+      const raw = doc.model.offsets[Math.min(pos, doc.model.offsets.length - 1)], at = sourceToRender(doc.model, raw);
+      const rect = this.render.coordsAtPos(at), pane = this.panes.render, viewport = pane.getBoundingClientRect();
+      const sourceRect = this.source.coordsAtPos(pos), offset = sourceRect ? sourceRect.top - bounds.top : 8;
+      this.scrollTo('render', pane.scrollTop + rect.top - viewport.top - offset);
+      // 缩放后的多列纸张中，把对应列也移动到可见范围。
+      if (rect.left < viewport.left + 8 || rect.right > viewport.right - 8) pane.scrollLeft += rect.left - viewport.left - 24;
+      return;
+    }
+    const bounds = from.getBoundingClientRect(), walker = document.createTreeWalker(this.render.dom, NodeFilter.SHOW_TEXT);
+    let best: { top: number; left: number; bottom: number; pos: number } | null = null;
+    while (walker.nextNode()) {
+      const text = walker.currentNode;
+      if (!text.textContent?.trim() || text.parentElement?.closest('[contenteditable="false"]')) continue;
+      const range = document.createRange(); range.selectNodeContents(text);
+      for (const rect of range.getClientRects()) {
+        if (rect.bottom <= bounds.top + 8 || rect.top >= bounds.bottom || rect.right <= bounds.left || rect.left >= bounds.right) continue;
+        const top = Math.max(rect.top, bounds.top + 8), left = Math.max(rect.left, bounds.left + 8);
+        if (best && (top > best.top + 1 || Math.abs(top - best.top) <= 1 && left >= best.left)) continue;
+        const hit = this.render.posAtCoords({ left: left + 1, top: Math.min(rect.bottom - 1, top + 2) });
+        if (hit) best = { top, left, bottom: rect.bottom, pos: hit.pos };
+      }
+    }
+    // 代码、公式等不可编辑原子块也能成为阅读锚点。
+    for (const block of doc.model.blocks.filter(block => block.node.isAtom)) {
+      const dom = this.render.nodeDOM(block.pos); if (!(dom instanceof HTMLElement)) continue;
+      const rect = dom.getBoundingClientRect(), top = Math.max(rect.top, bounds.top + 8);
+      if (rect.bottom <= bounds.top + 8 || rect.top >= bounds.bottom || rect.right <= bounds.left || rect.left >= bounds.right) continue;
+      if (!best || top < best.top - 1) best = { top, left: rect.left, bottom: rect.bottom, pos: block.pos };
+    }
+    if (!best) return;
+    const at = viewOffset(doc.model, renderToSource(doc.model, best.pos)), pane = this.panes.source, offset = best.top - bounds.top;
+    const rect = this.source.coordsAtPos(at);
+    this.scrollTo('source', rect ? pane.scrollTop + rect.top - pane.getBoundingClientRect().top - offset
+      : this.source.documentTop - pane.getBoundingClientRect().top + pane.scrollTop + this.source.lineBlockAt(at).top - offset);
+    // CodeMirror 虚拟行进入视口后，按实际字符位置完成第二次精确定位。
+    const ticket = doc.ticket('scroll');
+    this.source.requestMeasure({ read: () => this.source.coordsAtPos(at), write: rect => {
+      if (!rect || !doc.current(ticket) || this.document() !== doc || this.driver !== 'render') return;
+      this.scrollTo('source', pane.scrollTop + rect.top - pane.getBoundingClientRect().top - offset);
+    } });
+  }
   private sync() {
     const doc = this.document(); if (!doc) return;
     const renderOnly = doc.readOnly || !this.panes.source.getClientRects().length;
-    const context = `${doc.id}:${doc.revision}:${renderOnly}`;
+    const paper = this.panes.render.classList.contains('paper-mode');
+    const context = `${doc.id}:${doc.revision}:${renderOnly}:${paper}`;
     if (!this.ready() || doc.composition) { this.preservePending = false; return; }
     if (this.resetPending || context !== this.context) {
       const restored = this.resetPending;
       this.resetPending = false; this.preservePending = false; this.context = context;
       this.driver = renderOnly || (restored && doc.readingAnchor) ? 'render' : doc.selection.active; this.anchor = null;
+    }
+    if (paper) {
+      this.preservePending = false;
+      if (!renderOnly) this.paperSync();
+      captureView(doc, this.render, this.source); return;
     }
     if (renderOnly) {
       const segments = this.segments('render');
