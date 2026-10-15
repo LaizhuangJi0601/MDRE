@@ -1,3 +1,4 @@
+import { wrapCell } from './table-alignment';
 import type { Node as PMNode, Mark } from 'prosemirror-model';
 import type { Atom, Model, Range, Block } from './model';
 import { parse, semantics, schema, imageDimensions } from './model';
@@ -93,7 +94,7 @@ export function renderedEdit(model: Model, expected: PMNode): ReturnType<typeof 
       const prefix = /^(?:\uFEFF)?(?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?(?:#{1,6}[ \t]+)?/.exec(raw)![0];
       const ending = /(?:\r\n|\r|\n)$/.exec(raw)?.[0] || '';
       const id = nextBlock.type.name === 'heading' && nextBlock.attrs.explicitAnchor ? ` {#${nextBlock.attrs.explicitAnchor}}` : '';
-      const edit = { from: block.from, to: block.to, insert: prefix + serializeInline(nextBlock) + id + ending };
+      const edit = { from: block.from, to: block.to, insert: prefix + (nextBlock.type.name === 'table_cell' ? wrapCell(serializeInline(nextBlock), nextBlock.attrs.cellAlign) : serializeInline(nextBlock)) + id + ending };
       const source = patch(model.source, edit), next = parse(source, model, edit);
       if (equal(semantics(next.doc), semantics(expected))) return { source, model: next, edit };
     }
@@ -180,7 +181,7 @@ function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMar
     }
     case 'table': {
       const rows = Array.from({ length: node.childCount }, (_, i) => node.child(i));
-      const row = (r: PMNode) => '| ' + Array.from({ length: r.childCount }, (_, i) => serializeInline(r.child(i), [], canonical).replace(/(?<!\\)\|/g, '\\|').replace(/  \n/g, '<br>')).join(' | ') + ' |';
+      const row = (r: PMNode) => '| ' + Array.from({ length: r.childCount }, (_, i) => wrapCell(serializeInline(r.child(i), [], canonical).replace(/(?<!\\)\|/g, '\\|').replace(/  \n/g, '<br>'), r.child(i).attrs.cellAlign)).join(' | ') + ' |';
       const aligns = Array.from({ length: rows[0].childCount }, (_, i) => ({ left: ':---', right: '---:', center: ':---:' }[String(rows[0].child(i).attrs.align)] ?? '---'));
       return [row(rows[0]), '| ' + aligns.join(' | ') + ' |', ...rows.slice(1).map(row)].join('\n');
     }

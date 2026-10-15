@@ -14,7 +14,6 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
   const owner = options.docId?.();
   const inline = node.type.name === 'raw_inline';
   const isHtml = inline || node.attrs.kind === 'html_block';
-  let editingHtml = false;
   const dom = document.createElement(inline ? 'span' : 'div');
   dom.className = inline ? 'inline-editor raw-inline-editor' : 'inline-editor opaque';
   dom.contentEditable = 'false';
@@ -27,8 +26,6 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
   const language = document.createElement('select'); language.className = 'inline-language'; language.setAttribute('aria-label', '代码块语言');
   for (const [value, title] of codeLanguages) language.add(new Option(title, value));
   const preview = document.createElement('div'); preview.className = 'inline-preview';
-  const htmlToggle = document.createElement('button'); htmlToggle.className = 'html-source-toggle'; htmlToggle.type = 'button';
-  htmlToggle.onclick = () => { editingHtml = !editingHtml; paint(); if (editingHtml) input.focus(); };
   const fenced = () => !inline && /^(?:\s*>\s*)*\s*(`{3,}|~{3,})/.test(String(node.attrs.raw));
   const isCode = () => !inline && node.attrs.kind === 'code';
   let collapsed = isCode() && String(node.attrs.content).replace(/\n$/, '').split('\n').length >= 20;
@@ -51,9 +48,9 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
   const measure = document.createElement('div'); measure.className = 'code-line-measure'; measure.setAttribute('aria-hidden', 'true');
   editor.append(gutter, measure);
   const foldState = () => {
-    const code = isCode(); header.hidden = !code; label.hidden = code;
+    const code = isCode(); header.hidden = !code; label.hidden = true;
     dom.classList.toggle('code-block', code);
-    editor.hidden = code && collapsed; language.hidden = !code;
+    editor.hidden = !code || collapsed; language.hidden = !code;
     const name = codeLanguageName(language.value);
     language.title = `代码语言：${name}`;
     fold.textContent = `${collapsed ? '▸ 展开' : '▾ 折叠'} · ${input.value.split('\n').length} 行`;
@@ -125,10 +122,9 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
         if (/^(?:https?:|data:)/i.test(original) || !options.resolveImage) continue;
         options.resolveImage(original).then(url => { if (url && image.isConnected && options.docId?.() === owner) image.src = url; }).catch(options.fail);
       }
-      editor.hidden = !editingHtml; label.hidden = !editingHtml;
-      htmlToggle.textContent = editingHtml ? '收起 HTML 源码' : '编辑 HTML 源码';
-      htmlToggle.hidden = readonly;
+      editor.hidden = true; label.hidden = true;
     } else if (node.attrs.kind === 'hr') preview.append(document.createElement('hr'));
+    else if (!isCode()) preview.textContent = String(node.attrs.raw);
   }
   function write(final = false) { if (composing || options.readOnly()) return; const pos = getPos(); if (typeof pos !== 'number') return; try { pending = !options.write(pos, raw(), final); label.textContent = pending ? '正在编辑未完成的语法 · 离开编辑区后提交' : inline ? '内联 HTML' : `${node.attrs.kind} · 在此直接编辑`; } catch (reason) { options.fail(reason); } resize(); }
   input.addEventListener('input', () => write()); language.addEventListener('change', () => write());
@@ -144,8 +140,6 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
     });
   }
   dom.append(label, header, editor, preview);
-  if (isHtml) dom.append(htmlToggle);
-  if (!inline && !isCode()) { const after = document.createElement('button'); after.className = 'inline-after'; after.textContent = '下方新增段落'; after.onclick = () => { const pos = getPos(); if (typeof pos === 'number' && !options.readOnly()) options.after(pos); }; dom.append(after); }
   paint();
   let lastWidth = -1;
   const observer = new ResizeObserver(() => { const width = editor.clientWidth; if (width > 0 && width !== lastWidth) { lastWidth = width; resize(); } }); observer.observe(editor);

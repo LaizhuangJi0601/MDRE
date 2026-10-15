@@ -70,6 +70,7 @@ const paths = {
   markdown: '<path d="M3 6v12m0-12 5 6 5-6v12m5-12v12m-3-3 3 3 3-3"/>',
   minimize: '<path d="M5 12h14"/>',
   maximize: '<rect x="5" y="5" width="14" height="14"/>',
+  settings: '<path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   restore: '<path d="M9 5h10v10M5 9h10v10H5z"/>',
 };
 export type Icon = keyof typeof paths;

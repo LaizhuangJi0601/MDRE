@@ -9,7 +9,6 @@ type Options = { open: (dialog: HTMLDialogElement) => void; close: (dialog: HTML
 export function setupPreferences(options: Options) {
   const dialog = document.createElement('dialog'); dialog.id = 'settings-dialog'; dialog.dataset.cancel = 'settings-cancel';
   dialog.innerHTML = `<h3>设置</h3><form id="settings-form">
-    <p class="dialog-hint">修改后点击保存；取消或 Esc 放弃本次修改。</p>
     <fieldset><legend>外观与阅读</legend><div class="settings-grid">
       <label>颜色主题<select name="theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
       <label>默认启动模式<select name="default_mode"><option value="edit">编辑模式</option><option value="read">阅读模式</option></select></label>
@@ -23,7 +22,7 @@ export function setupPreferences(options: Options) {
       <label>A4 排版方式<select name="paper_layout"><option value="continuous">连续排版</option><option value="paged">分页排版</option></select></label>
       <label>A4 正文对齐<select name="paper_align"><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label>
       <label>默认图片显示<select name="image_layout"><option value="fit">适应正文宽度</option><option value="natural">原始尺寸（超宽缩小）</option></select></label>
-    </div><p class="dialog-hint">A4 在编辑和阅读模式中均可使用；Ctrl＋滚轮缩放，比例显示在渲染页面右下角。分页显示页码，并按可用宽度每行显示 1–3 页；正文默认两端对齐，可在此调整。</p></fieldset>
+    </div></fieldset>
     <fieldset><legend>侧栏导航</legend><div class="settings-grid">
       <label>侧栏宽度（px）<input name="sidebar_width" type="number" min="180" max="420" step="1" required></label>
       <label>默认大纲状态<select name="outline_collapsed"><option value="false">展开</option><option value="true">折叠</option></select></label>
@@ -36,7 +35,7 @@ export function setupPreferences(options: Options) {
     </div>
     <div class="settings-tools"><button type="button" id="settings-directory">打开配置目录</button><button type="button" id="settings-association">注册 .md 文件关联</button></div><p id="settings-tool-status" role="status"></p></fieldset>
     <fieldset><legend>快捷键</legend><p class="dialog-hint">点入后按组合键；Esc 恢复该项默认值。</p><div id="settings-shortcuts" class="shortcut-list"></div></fieldset>
-  </form><div id="settings-error" role="alert"></div><div class="dialog-actions"><button id="settings-cancel">取消</button><button id="settings-save" class="primary-button">保存设置</button></div>`;
+  </form><div id="settings-error" role="alert"></div><div class="dialog-actions"><button id="settings-help" type="button">帮助</button><button id="settings-cancel">取消</button><button id="settings-save" class="primary-button">保存设置</button></div>`;
   document.body.append(dialog);
   if (!document.getElementById('sidebar-files')) { dialog.querySelectorAll<HTMLElement>('[data-desktop-setting], .settings-tools, #settings-tool-status').forEach(element => element.hidden = true); }
   const form = dialog.querySelector<HTMLFormElement>('form')!;
@@ -101,6 +100,7 @@ export function setupPreferences(options: Options) {
   const help = document.createElement('dialog'); help.id = 'help-dialog'; help.dataset.cancel = 'help-close';
   help.innerHTML = '<h3>帮助</h3><div class="help-controls"><label>文档<select id="help-document"></select></label><label>筛选<input id="help-filter" type="search" placeholder="搜索内容或分类"></label></div><div id="help-content"></div><div id="help-link-status" role="status"></div><div class="dialog-actions"><button id="help-close" class="primary-button">关闭</button></div>';
   document.body.append(help);
+  document.getElementById('settings-help')!.onclick = () => { options.close(dialog); document.getElementById('help-menu')!.click(); };
   const select = help.querySelector<HTMLSelectElement>('#help-document')!, filter = help.querySelector<HTMLInputElement>('#help-filter')!;
   for (const path of Object.keys(documents).sort()) select.add(new Option(path.split('/').at(-1)!.replace(/\.md$/i, ''), path));
   const usage = Object.keys(documents).find(path => path.endsWith('/MDRE使用.md'));
