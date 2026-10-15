@@ -1973,7 +1973,7 @@ dependencies = [
 
 [[package]]
 name = "mdre"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "png 0.17.16",
  "serde",

@@ -224,9 +224,9 @@ pub fn register_file_association(app: tauri::AppHandle, window: tauri::WebviewWi
     use windows::Win32::System::Registry::HKEY_CURRENT_USER;
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let exe = exe.to_string_lossy().into_owned();
-    // 独立文档图标避免 Windows 继续复用旧 exe 的小图标缓存；随应用内嵌、无需联网。
+    // 文档图标独立于应用 Logo，保留折角纸张设计；随应用内嵌、无需联网。
     let icon = crate::persistence::app_root(&app, &window)?.join("mdre-document-v2.ico");
-    crate::persistence::atomic_write(&icon, include_bytes!("../icons/icon.ico"))?;
+    crate::persistence::atomic_write(&icon, include_bytes!("../icons/document.ico"))?;
     let existing = read_registry_string(HKEY_CURRENT_USER, r"Software\Classes\.md", "")
         .ok()
         .flatten();

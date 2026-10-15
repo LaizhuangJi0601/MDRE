@@ -7,7 +7,9 @@ src-tauri/gen/
 
 # 测试、运行配置和临时资料
 /tests/
-/scripts/
+/scripts/*
+!/scripts/make_icon.py
+!/scripts/sync_app_icon.py
 /.tmp/
 /.playwright-cli/
 /appdata/
