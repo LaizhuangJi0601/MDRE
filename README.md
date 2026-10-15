@@ -2,15 +2,15 @@
 
 ## 关于MDRE
 
-MDRE（Markdown Rendering Editor）是 Windows 本地 Markdown 编辑器，当前版本为 **0.2.1**。
+MDRE（Markdown Rendering Editor）是 Windows 本地 Markdown 编辑器，当前版本为 **0.2.2**。
 
 支持 Markdown 源码与富文本同步编辑、数学公式可视化编辑、Mermaid 图表、代码语法高亮，以及 HTML / PDF 导出。A4 纸张模式支持连续或分页排版，以及 25%–250% 缩放；分页模式每行最多显示 3 页，并提供页码与正文对齐设置。文件列表与大纲位于可调整宽度的侧栏中，大纲内容超出可用区域时可滚动查看。启动时恢复上次打开的文件夹与未关闭的文档；最近打开的文件与文件夹各保留最多 5 项。编辑与渲染资源随程序提供，可离线使用。
 
-版本变更见 [更新记录](CHANGELOG.md)。
+0.2.2 使用透明 MD 字母 Logo；关联的 Markdown 文件保留独立的折角纸张图标。版本变更见 [更新记录](CHANGELOG.md)。
 
 界面采用按类别分组的单行工具栏，支持下划线、颜色、高亮、图片宽度和代码块主题设置。欢迎页提供新建和打开文件入口。操作方法见 [MDRE使用](docs/help/MDRE使用.md)。
 
-从 [Releases](https://github.com/LaizhuangJi0601/MDRE/releases) 下载 Windows 版本，解压 ZIP 后运行 `mdre.exe`，或直接下载单独的 EXE。运行需要 Microsoft Edge WebView2 Runtime。
+下载当前仓库中的 [mdre.exe](https://github.com/LaizhuangJi0601/MDRE/raw/refs/heads/main/mdre.exe) 即可运行。运行需要 Microsoft Edge WebView2 Runtime；历史版本见 [Releases](https://github.com/LaizhuangJi0601/MDRE/releases)。
 
 ## 编译环境依赖
 
