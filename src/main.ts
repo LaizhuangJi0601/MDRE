@@ -22,7 +22,7 @@ import { formulaTarget, formulaEdit, mathUnsupported, type FormulaTarget } from 
 import { imagePaths, imagePathsFromText, imageFileUri } from './image-path';
 import { imageExtension, imageMarkdown, resolveImage, saveImage, savedImageSource } from './assets';
 import { convertBlock, moveBlock, deleteBlock, indentListItem, nestQuote, withFollowingParagraph, type BlockKind } from './blocks';
-import { insertTable, insertRow, removeRow, insertColumn, removeColumn, setTableCell } from './tables';
+import { insertTable, insertRow, removeRow, insertColumn, removeColumn, setTableCell, setCellAlignment } from './tables';
 import { projectSelection, mapRenderRange, viewOffset } from './mapping';
 import { DocumentSession, Workspace, type Draft, type Selection, type Ticket } from './session';
 import { staticHtml, safeUrl, exportAppearance } from './export';
@@ -156,7 +156,7 @@ function status() {
   $('mode').setAttribute('aria-pressed', String(doc.readOnly));
   document.querySelectorAll<HTMLElement>('[data-mode]').forEach(button => button.setAttribute('aria-checked', String((button.dataset.mode === 'read') === doc.readOnly)));
   markOutline();
-  document.querySelectorAll<HTMLButtonElement>('[data-editable]').forEach(button => button.disabled = doc.readOnly);
+  document.querySelectorAll<HTMLButtonElement>('[data-editable], #format-toolbar button, #format-toolbar input, #format-toolbar select').forEach(button => button.disabled = doc.readOnly);
   const marker = doc.saveState === 'conflict' || doc.saveState === 'failed' ? '⚠ ' : doc.saveState === 'pending' ? '● ' : '';
   document.title = `${marker}${doc.title} — MDRE`;
   $('window-title').textContent = `${doc.title} — MDRE`;
@@ -425,6 +425,7 @@ const render = new EditorView($('render'), {
       dom.append(contentDOM); return { dom, contentDOM };
     },
     opaque(node, view, getPos) {
+      if (node.attrs.kind === 'hr') { const dom = document.createElement('hr'); dom.dataset.block = node.attrs.id; return { dom }; }
       if (node.attrs.kind !== 'mermaid') return inlineEditor(node, view, getPos, inlineOptions);
       const doc = workspace.active;
       return diagramView(node, { readOnly: () => doc.readOnly, edit: () => action(() => { requirePreview(); openDraft(node.attrs.id); }), remove: () => { const pos = getPos(); if (typeof pos === 'number') inlineOptions.remove(pos); }, select: () => { const pos = getPos(); if (typeof pos === 'number') { render.dispatch(render.state.tr.setSelection(NodeSelection.create(render.state.doc, pos))); render.focus(); } } }, ms => { if (workspace.active === doc && !doc.welcome && !doc.modelStale && doc.renderRevision === doc.revision) { doc.renderMs += ms; renderTiming(doc); } });
@@ -452,7 +453,7 @@ const render = new EditorView($('render'), {
     table_cell(node) {
       const dom = document.createElement(node.attrs.header ? 'th' : 'td');
       dom.dataset.block = node.attrs.id; dom.dataset.cell = node.attrs.id;
-      if (node.attrs.align) dom.style.textAlign = String(node.attrs.align);
+      if (node.attrs.cellAlign || node.attrs.align) dom.style.textAlign = String(node.attrs.cellAlign || node.attrs.align);
       const contentDOM = document.createElement('div'); contentDOM.className = 'cell-content'; dom.append(contentDOM);
       return { dom, contentDOM };
     },
@@ -538,7 +539,7 @@ function showDocument() {
   if (!doc || doc.welcome) { previewTicket = null; if (parseTimer) clearTimeout(parseTimer); pendingMode = false; hideHandle(); $('cell-menu').hidden = true; $('search-bar').hidden = true; $('format-toolbar').hidden = false; $('image-handle').hidden = true; render.setProps({ editable: () => false }); mirror = true; source.dispatch({ changes: { from: 0, to: source.state.doc.length, insert: '' }, effects: mode.reconfigure([CMState.readOnly.of(true), CMView.editable.of(false)]) }); mirror = false; status(); return; }
   hideHandle(); $('cell-menu').hidden = true;
   $('panes').classList.toggle('read-only', doc.readOnly); applySourceVisibility();
-  $('format-toolbar').hidden = doc.readOnly; $('replace-controls').hidden = doc.readOnly;
+  $('format-toolbar').hidden = false; $('replace-controls').hidden = doc.readOnly;
   $('render-title').textContent = '渲染页面';
   mirrorSource(); if (doc.modelStale) schedulePreview(); else applyPreview(doc.ticket('parse')); restoreSelections(); restoreView(doc, render, source); status(); scrollSync?.reset();
   // 从隐藏源码栏恢复后，等 CodeMirror 完成实际行高测量，再按渲染锚点同步。
@@ -698,12 +699,24 @@ async function saveDocument(doc: DocumentSession, as: boolean, explicitPath?: st
 // 供验收与脚本调用：直接保存到指定路径 / 立即执行一次自动保存扫描。
 async function saveTo(path: string): Promise<boolean> { return saveDocument(workspace.active, false, path); }
 async function autosaveNow(): Promise<void> { await autosaveAll(workspace, saveQueue, () => status()); }
-// G-1/G-2：大纲面板按标题层级生成，点击跳转两栏，跟随光标高亮当前章节。
+// G-1/G-2：大纲面板按标题层级生成，点击跳转两栏，跟随视口高亮当前章节。
+function visibleOutlineSource(): number | null {
+  const doc = workspace.active; if (!doc || doc.modelStale) return null;
+  const viewport = $('render').getBoundingClientRect();
+  const blocks = new Map(doc.model.blocks.map(block => [block.id, block]));
+  for (const element of render.dom.querySelectorAll<HTMLElement>('[data-block]')) {
+    const block = blocks.get(element.dataset.block!);
+    if (!block || !(block.node.isTextblock || block.node.isAtom)) continue;
+    const rect = element.getBoundingClientRect();
+    if (rect.bottom > viewport.top + 12 && rect.top < viewport.bottom && rect.right > viewport.left && rect.left < viewport.right) return block.from;
+  }
+  return null;
+}
 function updateOutline() {
   const panel = $('outline-panel');
   if (panel.hidden || !workspace.active) return;
   const doc = workspace.active, entries = outlineEntries(doc.model);
-  outlineActive = currentOutline(entries, doc.selection.source.from);
+  outlineActive = currentOutline(entries, visibleOutlineSource() ?? doc.selection.source.from);
   renderOutline($('outline-list'), entries, outlineActive, jumpToOutline);
   $('outline-count').textContent = entries.length ? String(entries.length) : '';
   $('outline-empty').hidden = entries.length > 0;
@@ -712,7 +725,7 @@ function updateOutline() {
 function markOutline() {
   const panel = $('outline-panel');
   if (panel.hidden || !workspace.active) return;
-  const doc = workspace.active, active = currentOutline(outlineEntries(doc.model), doc.selection.source.from);
+  const doc = workspace.active, active = currentOutline(outlineEntries(doc.model), visibleOutlineSource() ?? doc.selection.source.from);
   if (active === outlineActive) return;
   outlineActive = active;
   for (const button of $('outline-list').querySelectorAll<HTMLElement>('[data-outline]')) {
@@ -736,13 +749,19 @@ function jumpToOutline(entry: OutlineEntry) {
   }
   // 视图同步会按旧选区回写 doc.selection，因此跳转的目标位置最后写入。
   doc.selection = { source: { from: block.from, to: block.from }, render: selection ? { from: selection.from, to: selection.to } : doc.selection.render, active: doc.readOnly || !sourceVisible ? 'render' : 'source' };
-  const element = render.dom.querySelector<HTMLElement>(`[data-block="${entry.id}"]`), pane = $('render');
-  if (element) {
-    const paneRect = pane.getBoundingClientRect(), elementRect = element.getBoundingClientRect();
-    pane.scrollTop += elementRect.top - paneRect.top - 6;
-  }
-  scrollSync?.reset();
-  outlineActive = null; markOutline();
+  const align = () => {
+    if (workspace.active !== doc) return;
+    const element = render.dom.querySelector<HTMLElement>(`[data-block="${entry.id}"]`), pane = $('render');
+    if (element) {
+      const paneRect = pane.getBoundingClientRect(), rect = element.getBoundingClientRect();
+      pane.scrollTop += rect.top - paneRect.top - 6;
+      if (rect.right <= paneRect.left || rect.left >= paneRect.right) pane.scrollLeft += rect.left - paneRect.left - 6;
+    }
+    scrollSync?.reset(); outlineActive = null; markOutline();
+  };
+  align();
+  // CodeMirror 的异步折行测量结束后再对齐，避免两栏联动把标题拉回旧位置。
+  source.requestMeasure({ read: () => doc.ticket('outline'), write: ticket => { if (workspace.accept(ticket)) align(); } });
 }
 function toggleOutline(force?: boolean) {
   const panel = $('outline-panel');
@@ -972,30 +991,7 @@ function topLevelBlock(model: Model, id: string): Block | null {
   return block;
 }
 function hideHandle() { handleBlock = null; $('block-handle').hidden = true; setDropdown($('convert'), false); }
-function positionHandle(block: Block, element: HTMLElement) {
-  const handle = $('block-handle'), rect = element.getBoundingClientRect(), pane = $('render').getBoundingClientRect();
-  handleBlock = block; handle.hidden = false;
-  handle.style.left = `${Math.max(2, rect.left - handle.offsetWidth - 6)}px`;
-  handle.style.top = `${Math.min(Math.max(pane.top + 2, rect.top), Math.max(pane.top + 2, pane.bottom - handle.offsetHeight - 2))}px`;
-  const siblings = workspace.active.model.blocks.filter(b => b.parent === block.parent).sort((a, b) => a.from - b.from);
-  const index = siblings.indexOf(block);
-  $<HTMLButtonElement>('handle-up').disabled = index <= 0;
-  $<HTMLButtonElement>('handle-down').disabled = index < 0 || index >= siblings.length - 1;
-  $<HTMLButtonElement>('handle-delete').disabled = block.parent !== null;
-  $<HTMLButtonElement>('handle-convert').disabled = !(block.node.isTextblock && block.parent === null);
-}
-// 预览、滚动或撤销都会替换块位置；手柄按最后指针位置重新定位，不因一次刷新消失。
-function refreshHandle() {
-  const doc = workspace.active;
-  if (!doc || doc.readOnly || !pointer) { hideHandle(); return; }
-  const under = document.elementFromPoint(pointer.x, pointer.y) as Element | null;
-  if (under?.closest('#block-handle, .dropdown-popup')) return;
-  const target = under?.closest<HTMLElement>('[data-block]');
-  const block = target ? topLevelBlock(doc.model, target.dataset.block!) : handleBlock && doc.model.blocks.some(b => b.id === handleBlock!.id) ? handleBlock : null;
-  const element = block ? render.dom.querySelector<HTMLElement>(`[data-block="${block.id}"]`) : null;
-  if (!block || !element) { hideHandle(); return; }
-  positionHandle(block, element);
-}
+function refreshHandle() { hideHandle(); }
 function handleStructural(operation: (model: Model, id: string) => Patch) {
   if (!handleBlock) throw new Error('请把鼠标移到渲染栏的块上再操作。');
   const doc = workspace.active;
@@ -1372,13 +1368,16 @@ render.dom.addEventListener('click', event => {
   const link = (event.target as Element).closest<HTMLAnchorElement>('a[href]');
   if (!link) return;
   event.preventDefault();
-  if (!event.ctrlKey && !workspace.active.readOnly) return;
+  const href = link.getAttribute('href')!;
+  if (!href.startsWith('#') && !event.ctrlKey && !workspace.active.readOnly) return;
   action(async () => {
-    const href = link.getAttribute('href')!;
     if (!safeUrl(href)) throw new Error('链接地址无效。');
     if (href.startsWith('#')) {
       const target = decodeURIComponent(href.slice(1));
-      const entry = outlineEntries(workspace.active.model).find(item => item.text === target || item.text.toLowerCase().replace(/\s+/g, '-') === target.toLowerCase());
+      const model = workspace.active.model;
+      const heading = model.blocks.find(block => block.type === 'heading' && block.node.attrs.anchor === target);
+      const entries = outlineEntries(model);
+      const entry = entries.find(item => item.id === heading?.id) ?? entries.find(item => item.text === target || item.text.toLowerCase().replace(/\s+/g, '-') === target.toLowerCase());
       if (entry) jumpToOutline(entry);
     } else if (isTauri()) await invoke('open_external', { url: href });
     else window.open(href, '_blank', 'noopener,noreferrer');
@@ -1618,19 +1617,6 @@ document.addEventListener('pointerdown', event => {
   if (!closestOf(event.target, '#mode-picker')) setDropdown($('mode-picker'), false);
   if (!closestOf(event.target, '#cell-menu')) { const menu = $('cell-menu'); if (menu) menu.hidden = true; }
 });
-$('render').addEventListener('mousemove', event => {
-  clearTimeout(handleTimer);
-  pointer = { x: event.clientX, y: event.clientY };
-  refreshHandle();
-});
-$('render').addEventListener('mouseleave', () => { clearTimeout(handleTimer); handleTimer = setTimeout(() => { if (!$('block-handle').matches(':hover')) { pointer = null; hideHandle(); } }, 250); });
-$('render').addEventListener('scroll', refreshHandle);
-$('block-handle').addEventListener('mouseenter', () => clearTimeout(handleTimer));
-$('block-handle').addEventListener('mouseleave', () => { clearTimeout(handleTimer); handleTimer = setTimeout(hideHandle, 250); });
-$('render').addEventListener('mousedown', event => {
-  // 单元格点击由 node view 处理；点空白处收起手柄。
-  if (!(event.target as Element).closest('[data-cell]')) hideHandle();
-});
 // 工具栏保留最后活动编辑器的选区；组合期间刷新不会夺走焦点。
 document.querySelectorAll('.toolbar, #menubar').forEach(toolbar => toolbar.addEventListener('mousedown', event => {
   const button = (event.target as Element).closest('button');
@@ -1761,8 +1747,8 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
     { id: 'sep-clipboard', label: '', separator: true },
     item('undo', '撤销', () => travel(false), !writable, 'undo', 'Ctrl+Z'), item('redo', '重做', () => travel(true), !writable, 'redo', 'Ctrl+Y'),
     { id: 'sep-format', label: '', separator: true },
-    ...[['bold', '粗体', 'bold', 'Ctrl+B'], ['italic', '斜体', 'italic', 'Ctrl+I'], ['underline', '下划线', 'underline', 'Ctrl+U'], ['strike', '删除线', 'strike', ''], ['superscript', '上标', 'superscript', ''], ['subscript', '下标', 'subscript', ''], ['inline-code', '行内代码', 'inlineCode', ''], ['link', '链接…', 'link', 'Ctrl+K']]
-      .map(([id, label, glyph, accelerator]) => item(id, label, () => $(id).click(), !writable || !!control || (origin === 'source' && !selected), glyph as Icon, accelerator)),
+    { id: 'format', label: '文字格式', icon: 'bold', children: [['bold', '粗体', 'bold', 'Ctrl+B'], ['italic', '斜体', 'italic', 'Ctrl+I'], ['underline', '下划线', 'underline', 'Ctrl+U'], ['strike', '删除线', 'strike', ''], ['superscript', '上标', 'superscript', ''], ['subscript', '下标', 'subscript', ''], ['inline-code', '行内代码', 'inlineCode', ''], ['link', '链接…', 'link', 'Ctrl+K']]
+      .map(([id, label, glyph, accelerator]) => item(id, label, () => $(id).click(), !writable || !!control || (origin === 'source' && !selected), glyph as Icon, accelerator)) },
     { id: 'insert', label: '插入', icon: 'plus', disabled: !writable || !!control, children: [
       ...[['table', '表格…', 'table'], ['image', '图片…', 'image'], ['code-block', '代码块…', 'codeBlock'], ['rule', '分隔线', 'rule'], ['quote', '引用', 'quote'], ['bullet', '无序列表', 'listBullet'], ['ordered', '有序列表', 'listOrdered'], ['task', '任务清单', 'task']]
         .map(([id, label, glyph]) => item(id, label, () => $(id).click(), false, glyph as Icon)),
@@ -1790,13 +1776,39 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
   if (cell) {
     const id = cell.dataset.cell!;
     items.push({ id: 'sep-cell', label: '', separator: true });
-    items.push(...[
+    const block = doc.model.blocks.find(block => block.id === id)!;
+    const style = getComputedStyle(cell);
+    const inherited = /center/.test(style.textAlign) ? 'center' : /right/.test(style.textAlign) || (style.textAlign === 'start' && style.direction === 'rtl') || (style.textAlign === 'end' && style.direction !== 'rtl') ? 'right' : 'left';
+    const alignment = block.node.attrs.cellAlign || block.node.attrs.align || inherited;
+    const children: ContextItem[] = (['left', 'center', 'right'] as const).map((align, index) => ({
+      ...item(`align-${align}`, ['左对齐', '居中', '右对齐'][index], () => structural(setCellAlignment(doc.model, id, align), undefined, 'render'), !writable), checked: alignment === align,
+    }));
+    children.push({ id: 'sep-align', label: '', separator: true });
+    children.push(...[
       ['row-above', '上方插入行', 'up', () => insertRow(doc.model, id, 0)], ['row-below', '下方插入行', 'down', () => insertRow(doc.model, id, 1)], ['row-remove', '删除行', 'trash', () => removeRow(doc.model, id)],
       ['column-before', '左侧插入列', 'chevronUp', () => insertColumn(doc.model, id, 0)], ['column-after', '右侧插入列', 'chevronDown', () => insertColumn(doc.model, id, 1)], ['column-remove', '删除列', 'trash', () => removeColumn(doc.model, id)],
     ].map(([id, label, glyph, patch]) => item(String(id), String(label), () => structural((patch as () => Patch)(), undefined, 'render'), !writable, glyph as Icon)));
+    items.push({ id: 'table-operations', label: '表格', icon: 'table', children });
   }
-  const opaque = (event.target as Element).closest<HTMLElement>('.opaque[data-block]');
-  if (opaque) items.push(item('delete-block', '删除当前块', () => structural(deleteBlock(doc.model, opaque.dataset.block!), undefined, 'render'), !writable, 'trash'));
+  const target = (event.target as Element).closest<HTMLElement>('[data-block]');
+  const block = target ? topLevelBlock(doc.model, target.dataset.block!) : null;
+  if (origin === 'render' && block) {
+    const siblings = doc.model.blocks.filter(item => item.parent === null).sort((a, b) => a.from - b.from);
+    const index = siblings.findIndex(item => item.id === block.id);
+    const children: ContextItem[] = [
+      item('block-up', '上移当前块', () => structural(moveBlock(doc.model, block.id, -1), undefined, 'render'), !writable || index <= 0, 'up'),
+      item('block-down', '下移当前块', () => structural(moveBlock(doc.model, block.id, 1), undefined, 'render'), !writable || index === siblings.length - 1, 'down'),
+      item('block-delete', '删除当前块', () => structural(deleteBlock(doc.model, block.id), undefined, 'render'), !writable, 'trash'),
+      item('block-source', doc.readOnly ? '查看源码片段…' : '编辑源码片段…', () => openDraft(block.id), false, 'code'),
+    ];
+    if (block.node.isTextblock && block.parent === null) {
+      children.push({ id: 'sep-convert', label: '', separator: true });
+      for (const [kind, label] of [['paragraph', '转为正文'], ['heading', '转为标题'], ['quote', '转为引用'], ['bullet', '转为无序列表'], ['ordered', '转为有序列表'], ['task', '转为任务清单']] as const) {
+        children.push(item(`convert-${kind}`, label, () => structural(convertBlock(doc.model, block.id, kind as BlockKind, { level: 2 }), undefined, 'render'), !writable, 'swap'));
+      }
+    }
+    items.push({ id: 'block-operations', label: '块操作', icon: 'swap', children });
+  }
   editorContext.open(items, event.clientX, event.clientY);
 }
 source.dom.addEventListener('contextmenu', event => openEditorContext(event, 'source'));
@@ -1881,6 +1893,8 @@ document.addEventListener('keydown', event => {
 });
 const splitControl = divider($('panes'), $('divider'), { initial: settings().split, persist: ratio => { void saveSettings({ split: ratio }); } });
 scrollSync = new ScrollSync(() => workspace.active, render, source, () => !!previewTicket && workspace.accept(previewTicket));
+let outlineScrollFrame = 0;
+$('render').addEventListener('scroll', () => { if (!outlineScrollFrame) outlineScrollFrame = requestAnimationFrame(() => { outlineScrollFrame = 0; markOutline(); }); }, { passive: true });
 const refreshTheme = await setupTheme($<HTMLSelectElement>('theme'), dark => {
   source.dispatch({ effects: theme.reconfigure(CMView.theme({ '&': { color: 'var(--text)', backgroundColor: 'var(--surface)' }, '.cm-gutters': { color: 'var(--muted)', backgroundColor: 'var(--soft)', borderColor: 'var(--border)' }, '.cm-cursor': { borderLeftColor: 'var(--text)' }, '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'var(--selection)' } }, { dark })) });
   setDiagramTheme(dark);

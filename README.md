@@ -2,7 +2,7 @@
 
 ## 关于MDRE
 
-MDRE（Markdown Rendering Editor）是 Windows 本地 Markdown 编辑器，当前版本为 **0.2.0**。
+MDRE（Markdown Rendering Editor）是 Windows 本地 Markdown 编辑器，当前版本为 **0.2.1**。
 
 支持 Markdown 源码与富文本同步编辑、数学公式可视化编辑、Mermaid 图表、代码语法高亮，以及 HTML / PDF 导出。A4 纸张模式支持连续或分页排版，以及 25%–250% 缩放；分页模式每行最多显示 3 页，并提供页码与正文对齐设置。文件列表与大纲位于可调整宽度的侧栏中，大纲内容超出可用区域时可滚动查看。启动时恢复上次打开的文件夹与未关闭的文档；最近打开的文件与文件夹各保留最多 5 项。编辑与渲染资源随程序提供，可离线使用。
 

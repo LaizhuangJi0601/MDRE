@@ -3,6 +3,7 @@ import { Transform } from 'prosemirror-transform';
 import { cellSpans, parse, schema, type Block, type Model } from './model';
 import { validated, validatedStructure, type Patch } from './edits';
 import { lineEnding, withFollowingParagraph } from './blocks';
+import { alignedCell, wrapCell, type CellAlignment } from './table-alignment';
 
 type Grid = { table: Block; header: string[]; delimiter: string[]; body: string[][]; aligns: string[] };
 type Cells = { header: string[]; delimiter: string[]; body: string[][] };
@@ -35,7 +36,7 @@ function inlineContent(text: string): PMNode[] {
 function buildTable(grid: Grid, cells: Cells): PMNode {
   const rows = [cells.header, ...cells.body];
   return schema.nodes.table.create({ id: '' }, rows.map((row, index) => schema.nodes.table_row.create({ id: '', header: index === 0 },
-    row.map((text, column) => schema.nodes.table_cell.create({ id: '', header: index === 0, align: grid.aligns[column] ?? '' }, inlineContent(text))))));
+    row.map((text, column) => { const cell = alignedCell(text); return schema.nodes.table_cell.create({ id: '', header: index === 0, align: grid.aligns[column] ?? '', cellAlign: cell.align }, inlineContent(cell.text)); }))));
 }
 
 function writeGrid(model: Model, grid: Grid, cells: Cells): Patch {
@@ -123,8 +124,17 @@ export function setTableCell(model: Model, cellId: string, text: string): Patch 
   const value = text.replace(/[\r\n]+/g, ' ').trim();
   // 空单元格在裁剪后 from===to；从该点写入可让新单元格起点与补丁起点一致，保留块 ID（确认后仍回到该格）。
   const empty = cell.from === cell.to;
-  const edit: Patch = { from: cell.from, to: cell.to, insert: value.replace(/\|/g, '\\|') + (empty ? ' ' : '') };
+  const edit: Patch = { from: cell.from, to: cell.to, insert: wrapCell(value.replace(/\|/g, '\\|'), cell.node.attrs.cellAlign) + (empty ? ' ' : '') };
   const node = schema.nodes.table_cell.create({ ...cell.node.attrs }, inlineContent(value));
   validated(model, edit, new Transform(model.doc).replaceWith(cell.pos, cell.pos + cell.node.nodeSize, node).doc);
   return edit;
+}
+
+export function setCellAlignment(model: Model, cellId: string, align: CellAlignment): Patch {
+  const cell = model.blocks.find(block => block.id === cellId && block.type === 'table_cell');
+  if (!cell) throw new Error('未找到表格单元格。');
+  const text = alignedCell(model.source.slice(cell.from, cell.to)).text;
+  const edit = { from: cell.from, to: cell.to, insert: wrapCell(text, align) + (cell.from === cell.to ? ' ' : '') };
+  const expected = new Transform(model.doc).setNodeMarkup(cell.pos, undefined, { ...cell.node.attrs, cellAlign: align }).doc;
+  return validated(model, edit, expected).edit;
 }

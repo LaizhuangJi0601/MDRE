@@ -1,6 +1,6 @@
 import { icon, type Icon } from './icons';
 
-export type ContextItem = { id: string; label: string; icon?: Icon; accelerator?: string; disabled?: boolean; separator?: boolean; children?: ContextItem[]; colorPicker?: { value: string; change: (value: string) => void }; run?: () => void };
+export type ContextItem = { id: string; label: string; icon?: Icon; accelerator?: string; disabled?: boolean; separator?: boolean; checked?: boolean; children?: ContextItem[]; colorPicker?: { value: string; change: (value: string) => void }; run?: () => void };
 // 两种菜单共用定位、键盘与关闭行为，鼠标操作不清除编辑选区。
 export function contextMenu(id: string) {
   const dom = document.createElement('div'); dom.id = id; dom.className = 'context-menu'; dom.role = 'menu'; dom.hidden = true; document.body.append(dom);
@@ -28,7 +28,8 @@ export function contextMenu(id: string) {
         label.append(text, input); return label;
       }
       const button = document.createElement('button');
-      button.dataset.context = item.id; button.role = 'menuitem';
+      button.dataset.context = item.id; button.role = item.checked === undefined ? 'menuitem' : 'menuitemradio';
+      if (item.checked !== undefined) button.setAttribute('aria-checked', String(item.checked));
       // 与工具栏一致的应用内悬停提示；title 保留作为无脚本时的兜底。
       const hint = item.accelerator ? `${item.label}（${item.accelerator}）` : item.label;
       button.title = hint; button.dataset.tooltip = hint;
@@ -40,7 +41,7 @@ export function contextMenu(id: string) {
       } else { glyph.innerHTML = item.icon ? icon(item.icon) : ''; }
       const label = document.createElement('span'); label.className = 'context-label'; label.textContent = item.label;
       const key = document.createElement('span'); key.className = 'context-accelerator';
-      key.textContent = item.children ? '›' : item.accelerator ?? '';
+      key.textContent = item.children ? '›' : item.checked ? '✓' : item.accelerator ?? '';
       button.append(glyph, label, key);
       button.disabled = !!item.disabled;
       if (item.children) {

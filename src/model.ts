@@ -4,6 +4,7 @@ import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs';
 import { Schema, Node as PMNode, Mark } from 'prosemirror-model';
 import { sanitizeHtml, htmlInlineTags } from './render/html';
 import { absoluteImagePath } from './image-path';
+import { alignedCell } from './table-alignment';
 
 export type Range = { from: number; to: number };
 export type Character = Range & { pos: number; text: string; marks: readonly Mark[]; block: string };
@@ -39,7 +40,7 @@ export const schema = new Schema({
     list_item: { content: 'block+', attrs: { ...blockAttrs, checked: { default: null } }, toDOM: n => ['li', { 'data-block': n.attrs.id, 'data-item': n.attrs.id, 'data-checked': n.attrs.checked }, 0] },
     table: { content: 'table_row+', group: 'block', attrs: blockAttrs, toDOM: n => ['table', { 'data-block': n.attrs.id }, ['tbody', 0]] },
     table_row: { content: 'table_cell+', attrs: { ...blockAttrs, header: { default: false } }, toDOM: n => ['tr', { 'data-block': n.attrs.id }, 0] },
-    table_cell: { content: 'inline*', isolating: true, attrs: { ...blockAttrs, header: { default: false }, align: { default: '' } }, toDOM: n => [n.attrs.header ? 'th' : 'td', { 'data-block': n.attrs.id, 'data-cell': n.attrs.id, ...(n.attrs.align ? { style: `text-align:${n.attrs.align}` } : {}) }, 0] },
+    table_cell: { content: 'inline*', isolating: true, attrs: { ...blockAttrs, header: { default: false }, align: { default: '' }, cellAlign: { default: null } }, toDOM: n => [n.attrs.header ? 'th' : 'td', { 'data-block': n.attrs.id, 'data-cell': n.attrs.id, ...((n.attrs.cellAlign || n.attrs.align) ? { style: `text-align:${n.attrs.cellAlign || n.attrs.align}` } : {}) }, 0] },
     opaque: { group: 'block', atom: true, selectable: true, attrs: { ...blockAttrs, raw: { default: '' }, kind: { default: 'source' }, content: { default: '' }, info: { default: '' } }, toDOM: n => ['div', { class: 'opaque', 'data-block': n.attrs.id }, `${n.attrs.kind} · 双击编辑源码`] },
     image: { inline: true, group: 'inline', atom: true, attrs: { src: {}, alt: { default: '' }, title: { default: '' }, width: { default: null }, dimensions: { default: null } }, toDOM: n => ['img', { src: n.attrs.src, alt: n.attrs.alt, title: n.attrs.title, ...(n.attrs.width ? { width: n.attrs.width } : {}) }] },
     raw_inline: { inline: true, group: 'inline', atom: true, attrs: { raw: {} }, toDOM: n => ['code', { class: 'raw-inline' }, n.attrs.raw] },
@@ -177,7 +178,8 @@ markdown.inline.ruler.before('text', 'sup_sub', (state, silent) => {
     if (state.src[at - 1] === '\\') { end = at + 1; continue; }
     const content = state.src.slice(state.pos + 1, at);
     if (!content || /[\s]/.test(content)) return false;
-    if (silent) return true;
+    // 链接、图片及扩展配对会以 silent 模式预扫描；成功时仍须消费整个上下标。
+    if (silent) { state.pos = at + 1; return true; }
     const token = state.push(`${kind}_open`, kind, 1) as Traced;
     token.meta = { range: { from: state.pos, to: at + 1 }, units: [] };
     const inner = state.push('text', '', 0) as Traced;
@@ -648,7 +650,7 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
       if (token.type === 'th_open' || token.type === 'td_open') {
         const caret = lines[table.line + 1] - 1;
         const span = table.spans[table.index++] ?? { from: caret, to: caret };
-        addBlock('table_cell', { map: [table.line, table.line + 1] } as Token, { header: token.type === 'th_open', align: /text-align:(\w+)/.exec(token.attrGet('style') || '')?.[1] ?? '', cell: span }, { from: normalized.offsets[span.from], to: normalized.offsets[span.to] });
+        addBlock('table_cell', { map: [table.line, table.line + 1] } as Token, { header: token.type === 'th_open', align: /text-align:(\w+)/.exec(token.attrGet('style') || '')?.[1] ?? '', cellAlign: alignedCell(normalized.text.slice(span.from, span.to)).align, cell: span }, { from: normalized.offsets[span.from], to: normalized.offsets[span.to] });
         continue;
       }
       if (token.type === 'th_close' || token.type === 'td_close' || token.type === 'tr_close') { finish(); continue; }
@@ -716,7 +718,8 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
       }
       let marks: readonly Mark[] = [], local = 0;
       const markStack: Mark[] = [];
-      const children = token.children || [];
+      // 单格对齐的外层 span 属于单元格属性，文字偏移仍对应完整源码。
+      const children = frame.type === 'table_cell' && frame.attrs.cellAlign ? (token.children || []).slice(1, -1) : token.children || [];
       // 成对的行内 HTML 包住实际可编辑文字，两个标签不再显示成源码框。
       const htmlStack: { token: Token; tag: string }[] = [];
       const pairs = new Map<Token, { open: string; close: string; opening: boolean }>();
