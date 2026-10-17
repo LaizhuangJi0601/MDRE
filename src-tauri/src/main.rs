@@ -18,8 +18,9 @@ struct PdfSnapshot(PathBuf);
 impl Drop for PdfSnapshot { fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); } }
 
 #[tauri::command]
-async fn export_pdf(app: tauri::AppHandle, window: tauri::WebviewWindow, html: String, path: String) -> Result<PdfResult, String> {
+async fn export_pdf(app: tauri::AppHandle, window: tauri::WebviewWindow, html: String, path: String, layout: Option<String>) -> Result<PdfResult, String> {
     if window.label() != "main" { return Err("导出内容没有应用 IPC 权限".into()); }
+    let long_page = match layout.as_deref() { None | Some("paged") => false, Some("long") => true, _ => return Err("PDF 页面方式无效".into()) };
     let output = PathBuf::from(&path);
     if !output.is_absolute() || !output.extension().and_then(|s| s.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("pdf")) { return Err("需要绝对 .pdf 输出路径".into()); }
     std::fs::create_dir_all(output.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -35,12 +36,20 @@ async fn export_pdf(app: tauri::AppHandle, window: tauri::WebviewWindow, html: S
           await document.fonts.ready;
           await Promise.all(Array.from(document.images, image => image.decode()));
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          window.chrome.webview.postMessage('{ready}');
+          let height = 297;
+          if ({long_page}) {{
+            document.body.style.width = '180mm';
+            const bottom = document.body.getBoundingClientRect().bottom + parseFloat(getComputedStyle(document.body.lastElementChild || document.body).marginBottom || '0');
+            height = Math.max(50, Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight, bottom) * 25.4 / 96 + 34));
+            if (height > 5080) throw new Error('全文超过打印引擎的单页长度上限（5.08 米），请选择分页导出。');
+            const style = document.createElement('style'); style.textContent = '@page {{size:210mm ' + height + 'mm; margin:15mm}}'; document.head.append(style);
+          }}
+          window.chrome.webview.postMessage('{ready}:' + height);
         }} catch(error) {{ window.chrome.webview.postMessage('mdre-error:' + String(error)); }}
       }}, {{once:true}});
     "#);
     let export = WebviewWindowBuilder::new(&app, format!("export-{nonce}"), WebviewUrl::External("about:blank".parse().unwrap()))
-        .title("MDRE PDF 快照").visible(false).inner_size(900.0, 1000.0)
+        .title("MDRE PDF 快照").visible(false).inner_size(680.0, 1000.0)
         .initialization_script(&init).build().map_err(|e| e.to_string())?;
     let (sender, receiver) = oneshot::channel::<Result<(), String>>();
     let completion = Arc::new(Mutex::new(Some(sender)));
@@ -62,7 +71,10 @@ async fn export_pdf(app: tauri::AppHandle, window: tauri::WebviewWindow, html: S
                 args.unwrap().TryGetWebMessageAsString(&mut message)?;
                 let text = message.to_string()?;
                 windows::Win32::System::Com::CoTaskMemFree(Some(message.0.cast()));
-                if text == ready {
+                if let Some(height) = text.strip_prefix(&(ready.clone() + ":")) {
+                    let height: f64 = height.parse().unwrap_or(297.0);
+                    if !height.is_finite() || !(50.0..=5080.0).contains(&height) { return Ok(()); }
+                    settings.SetPageHeight(height / 25.4)?;
                     let finish = callback_completion.clone();
                     let callback = PrintToPdfCompletedHandler::create(Box::new(move |status, success| {
                         let result = status.map_err(|e| e.to_string()).and_then(|_| if success { Ok(()) } else { Err("WebView2 PrintToPdf 回调返回 false".into()) });

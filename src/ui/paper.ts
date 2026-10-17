@@ -54,5 +54,5 @@ export function setupPaper(pane: HTMLElement, button: HTMLButtonElement, label: 
     pane.scrollTop = (top + y) * zoom / previous - y;
   }, { passive: false });
   paint();
-  return { toggle, refresh() { enabled = settings().paper_enabled; paint(); }, get enabled() { return enabled; } };
+  return { toggle, set(value: boolean) { enabled = value; paint(); }, refresh() { enabled = settings().paper_enabled; paint(); }, get enabled() { return enabled; } };
 }

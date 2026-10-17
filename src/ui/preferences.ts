@@ -1,3 +1,4 @@
+import { convertFontSize } from './font-size';
 import MarkdownIt from 'markdown-it';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { settings, saveSettings, shortcutCommands, type Settings } from '../persistence/settings';
@@ -14,7 +15,9 @@ export function setupPreferences(options: Options) {
       <label>默认启动模式<select name="default_mode"><option value="edit">编辑模式</option><option value="read">阅读模式</option></select></label>
       <label>代码块主题<select name="code_theme"><option value="light">浅色</option><option value="dark">深色</option></select></label>
       <label>正文字体<select name="font_body"></select></label><label>等宽字体<select name="font_mono"></select></label>
-      <label>正文字号（px）<input name="font_size" type="number" min="10" max="32" step="1" required></label>
+      <label>字号单位<select name="font_unit"><option value="px">px</option><option value="em">em</option></select></label>
+      <label>正文字号<input name="font_size" type="number" min="8" max="32" step="any" required></label>
+      <label>编辑功能区显示状态<select name="toolbar_visible"><option value="true">显示</option><option value="false">隐藏</option></select></label>
       <label>行距<input name="line_height" type="number" min="1" max="3" step="0.05" required></label>
     </div></fieldset>
     <fieldset><legend>纸张与图片</legend><div class="settings-grid">
@@ -24,6 +27,7 @@ export function setupPreferences(options: Options) {
       <label>默认图片显示<select name="image_layout"><option value="fit">适应正文宽度</option><option value="natural">原始尺寸（超宽缩小）</option></select></label>
     </div></fieldset>
     <fieldset><legend>侧栏导航</legend><div class="settings-grid">
+      <label>默认侧栏状态<select name="sidebar_visible"><option value="true">显示</option><option value="false">收起</option></select></label>
       <label>侧栏宽度（px）<input name="sidebar_width" type="number" min="180" max="420" step="1" required></label>
       <label>默认大纲状态<select name="outline_collapsed"><option value="false">展开</option><option value="true">折叠</option></select></label>
       <label data-desktop-setting>文件列表区域（%）<input name="file_list_ratio" type="number" min="20" max="80" step="1" required></label>
@@ -40,16 +44,21 @@ export function setupPreferences(options: Options) {
   if (!document.getElementById('sidebar-files')) { dialog.querySelectorAll<HTMLElement>('[data-desktop-setting], .settings-tools, #settings-tool-status').forEach(element => element.hidden = true); }
   const form = dialog.querySelector<HTMLFormElement>('form')!;
   const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement;
+  let fontUnit: 'px' | 'em' = 'px';
+  const sizeBounds = () => { const size = field('font_size') as HTMLInputElement; size.min = fontUnit === 'px' ? '8' : '0.5'; size.max = fontUnit === 'px' ? '32' : '2'; };
+  field('font_unit').onchange = () => { const next = field('font_unit').value as 'px' | 'em'; field('font_size').value = String(convertFontSize(Number(field('font_size').value), fontUnit, next)); fontUnit = next; sizeBounds(); };
   const cancel = dialog.querySelector<HTMLButtonElement>('#settings-cancel')!;
   cancel.onclick = () => options.close(dialog);
   form.onsubmit = event => { event.preventDefault(); dialog.querySelector<HTMLButtonElement>('#settings-save')!.click(); };
   document.getElementById('settings-open')!.onclick = () => {
-    const current = settings();
+    const saved = settings(), view = saved.last_view;
+    const current = view ? { ...saved, paper_enabled: view.paper, show_source: view.source, sidebar_visible: view.sidebar, toolbar_visible: view.toolbar } : saved;
     for (const [name, mono] of [['font_body', false], ['font_mono', true]] as const) {
       const select = field(name) as HTMLSelectElement;
       select.replaceChildren(...[...new Set(['', current[name], ...options.fonts(mono)])].map(value => new Option(value || '默认', value)));
     }
-    for (const name of ['theme', 'code_theme', 'default_mode', 'show_source', 'font_body', 'font_mono', 'font_size', 'line_height', 'split', 'backup_count', 'paper_enabled', 'paper_layout', 'paper_align', 'image_layout', 'sidebar_width', 'file_list_ratio', 'outline_collapsed'] as const) field(name).value = String(current[name]);
+    for (const name of ['font_unit', 'sidebar_visible', 'toolbar_visible', 'theme', 'code_theme', 'default_mode', 'show_source', 'font_body', 'font_mono', 'font_size', 'line_height', 'split', 'backup_count', 'paper_enabled', 'paper_layout', 'paper_align', 'image_layout', 'sidebar_width', 'file_list_ratio', 'outline_collapsed'] as const) field(name).value = String(current[name]);
+    fontUnit = current.font_unit; sizeBounds();
     dialog.querySelector('#settings-error')!.textContent = ''; dialog.querySelector('#settings-tool-status')!.textContent = '';
     dialog.querySelector('#settings-shortcuts')!.replaceChildren(...shortcutCommands.map(command => {
       const row = document.createElement('label'); row.className = 'shortcut-row'; row.append(command.label);
@@ -71,6 +80,7 @@ export function setupPreferences(options: Options) {
     if (!form.reportValidity()) return;
     const button = dialog.querySelector<HTMLButtonElement>('#settings-save')!; button.disabled = cancel.disabled = true;
     const patch: Partial<Settings> = {
+      font_unit: field('font_unit').value as Settings['font_unit'], sidebar_visible: field('sidebar_visible').value === 'true', toolbar_visible: field('toolbar_visible').value === 'true',
       theme: field('theme').value as Settings['theme'], code_theme: field('code_theme').value as Settings['code_theme'], default_mode: field('default_mode').value as Settings['default_mode'], font_body: field('font_body').value, font_mono: field('font_mono').value,
       paper_enabled: field('paper_enabled').value === 'true', paper_layout: field('paper_layout').value as Settings['paper_layout'], paper_align: field('paper_align').value as Settings['paper_align'], image_layout: field('image_layout').value as Settings['image_layout'], sidebar_width: Number(field('sidebar_width').value), file_list_ratio: Number(field('file_list_ratio').value), outline_collapsed: field('outline_collapsed').value === 'true',
       show_source: field('show_source').value === 'true', font_size: Number(field('font_size').value), line_height: Number(field('line_height').value), split: Number(field('split').value), backup_count: Number(field('backup_count').value), shortcuts: {},
@@ -79,6 +89,13 @@ export function setupPreferences(options: Options) {
       const command = shortcutCommands.find(command => command.id === input.dataset.shortcut)!;
       if (input.value && input.value !== command.fallback) patch.shortcuts![command.id] = input.value;
     }
+    const last = settings().last_view;
+    if (last) patch.last_view = { ...last,
+      paper: patch.paper_enabled!,
+      source: patch.show_source!,
+      sidebar: patch.sidebar_visible!,
+      toolbar: patch.toolbar_visible!,
+    };
     try { await saveSettings(patch); options.applied(); options.close(dialog); }
     catch (reason) { dialog.querySelector('#settings-error')!.textContent = reason instanceof Error ? reason.message : String(reason); }
     finally { button.disabled = cancel.disabled = false; }

@@ -5,6 +5,7 @@ import { renderMath, sanitizeHtml, tocHtml, type TocEntry } from './render/markd
 import { codeLanguageName } from './ui/code-language';
 import codeThemeCss from './ui/code-theme.css?inline';
 import { codeTheme, type CodeTheme } from './ui/code-appearance';
+import { embeddableImageSource } from './image-path';
 import type { Model } from './model';
 
 export type ExportAppearance = { fontSize?: string; fontFamily?: string; lineHeight?: string; codeThemes?: CodeTheme[] };
@@ -17,7 +18,7 @@ export function exportAppearance(owner: string, model: Model, editor: HTMLElemen
 const validateLink = markdown.validateLink.bind(markdown);
 markdown.validateLink = url => /^data:image\/svg\+xml;base64,/i.test(url) || validateLink(url);
 export function safeUrl(url: string, image = false): boolean {
-  return image ? /^(?:data:image\/(?:png|jpeg|gif|webp|svg\+xml);|https?:\/\/)/i.test(url) : /^(?:https?:|mailto:|#)/i.test(url);
+  return image ? embeddableImageSource(url) : /^(?:https?:|mailto:|#)/i.test(url);
 }
 const defaultImage = markdown.renderer.rules.image!;
 markdown.renderer.rules.image = (tokens, i, options, env, renderer) => {

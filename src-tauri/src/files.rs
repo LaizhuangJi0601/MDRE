@@ -64,6 +64,10 @@ pub struct Settings {
     font_mono: String,
     #[serde(default = "default_font_size", alias = "fontSize")]
     font_size: f64,
+    font_unit: String,
+    sidebar_visible: bool,
+    toolbar_visible: bool,
+    last_view: Option<serde_json::Value>,
     #[serde(default = "default_line_height", alias = "lineHeight")]
     line_height: f64,
     #[serde(default)]
@@ -87,7 +91,7 @@ impl Default for Settings {
         Settings {
             theme: "system".into(), code_theme: "light".into(), default_mode: "edit".into(), show_source: default_show_source(), split: default_split(),
             paper_enabled: false, paper_layout: "continuous".into(), paper_align: "justify".into(), image_layout: "fit".into(), sidebar_width: default_sidebar_width(), file_list_ratio: default_file_list_ratio(), outline_collapsed: false,
-            font_body: String::new(), font_mono: String::new(), font_size: default_font_size(), line_height: default_line_height(),
+            font_body: String::new(), font_mono: String::new(), font_size: default_font_size(), font_unit: "px".into(), sidebar_visible: true, toolbar_visible: true, last_view: None, line_height: default_line_height(),
             recent: Vec::new(), recent_folders: Vec::new(), last_session: None, backup_count: default_backup_count(), shortcuts: std::collections::BTreeMap::new(),
         }
     }
@@ -486,7 +490,8 @@ pub fn write_settings(app: tauri::AppHandle, window: tauri::WebviewWindow, state
     if !(180.0..=420.0).contains(&settings.sidebar_width) { return Err("侧栏宽度需在 180–420 px 之间".into()); }
     if !(20.0..=80.0).contains(&settings.file_list_ratio) { return Err("文件列表区域比例需在 20%–80% 之间".into()); }
     if !(20.0..=80.0).contains(&settings.split) { return Err("分栏比例需在 20%–80% 之间".into()); }
-    if !(10.0..=32.0).contains(&settings.font_size) { return Err("正文字号需在 10–32 之间".into()); }
+    let valid_size = match settings.font_unit.as_str() { "px" => (8.0..=32.0).contains(&settings.font_size), "em" => (0.5..=2.0).contains(&settings.font_size), _ => false };
+    if !valid_size { return Err("正文字号或单位无效".into()); }
     if !(1.0..=3.0).contains(&settings.line_height) { return Err("行距需在 1.0–3.0 之间".into()); }
     if settings.backup_count > 20 { return Err("备份份数不能超过 20".into()); }
     if settings.recent.len() > RECENT_LIMIT { return Err("最近打开最多 5 条".into()); }
@@ -496,3 +501,73 @@ pub fn write_settings(app: tauri::AppHandle, window: tauri::WebviewWindow, state
     }
     crate::persistence::atomic_write(&crate::persistence::app_root(&app, &window)?.join("settings.json"), &serde_json::to_vec(&settings).map_err(|error| error.to_string())?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn settings_bridge_and_legacy_keys() {
+        let defaults = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(defaults["backup_count"], 0);
+        assert_eq!(defaults["default_mode"], "edit");
+        assert_eq!(defaults["show_source"], true);
+        assert!(defaults.get("backupCount").is_none());
+        for json in [
+            r#"{"default_mode":"read","backup_count":4,"font_body":"中文字体","font_mono":"Consolas","font_size":18,"line_height":2.0}"#,
+            r#"{"defaultMode":"read","backupCount":4,"fontBody":"中文字体","fontMono":"Consolas","fontSize":18,"lineHeight":2.0}"#,
+        ] {
+            let settings: Settings = serde_json::from_str(json).unwrap();
+            let output = serde_json::to_value(settings).unwrap();
+            assert_eq!(output["default_mode"], "read");
+            assert_eq!(output["show_source"], true);
+            assert_eq!(output["backup_count"], 4);
+            assert_eq!(output["font_body"], "中文字体");
+            assert_eq!(output["font_size"], 18.0);
+            assert_eq!(output["line_height"], 2.0);
+        }
+    }
+    #[test]
+    fn source_visibility_settings_roundtrip() {
+        for json in [r#"{"show_source":false}"#, r#"{"showSource":false}"#] {
+            let settings: Settings = serde_json::from_str(json).unwrap();
+            assert!(!settings.show_source);
+            let saved = serde_json::to_string(&settings).unwrap();
+            assert!(!serde_json::from_str::<Settings>(&saved).unwrap().show_source);
+        }
+    }
+    #[test]
+    fn filename_validation() {
+        for name in ["", ".", "..", "a/b.md", "a\\b.md", "a:.md", "CON.md", "LPT1.txt", "NUL", "x.", "x "] { assert!(!valid_filename(name), "{name}"); }
+        for name in ["中文 文件.md", "a.md", "CONtext.md", "COM10.md"] { assert!(valid_filename(name), "{name}"); }
+    }
+    #[test]
+    fn encoding_detection_and_roundtrip() {
+        let (text, encoding, bom) = decode("中文".as_bytes()).unwrap();
+        assert_eq!((text.as_str(), encoding.as_str(), bom), ("中文", "utf-8", false));
+        let mut with_bom = vec![0xEF, 0xBB, 0xBF];
+        with_bom.extend_from_slice("中文".as_bytes());
+        let (text, encoding, bom) = decode(&with_bom).unwrap();
+        assert!(bom && encoding == "utf-8" && text.starts_with('\u{feff}'));
+        assert_eq!(encode(&text, "utf-8", bom).unwrap(), with_bom);
+        let gbk = gbk_encode("中文").unwrap();
+        assert_eq!(gbk, vec![0xD6, 0xD0, 0xCE, 0xC4]);
+        let (text, encoding, bom) = decode(&gbk).unwrap();
+        assert_eq!((text.as_str(), encoding.as_str(), bom), ("中文", "gbk", false));
+        assert!(gbk_encode("😀").is_err());
+        for encoding in ["utf-16le", "utf-16be"] {
+            let original = "\u{feff}中文 😀\r\n";
+            let bytes = encode(original, encoding, true).unwrap();
+            let (text, detected, bom) = decode(&bytes).unwrap();
+            assert_eq!((text.as_str(), detected.as_str(), bom), (original, encoding, true));
+            assert_eq!(encode(&text, &detected, bom).unwrap(), bytes);
+            let mut truncated = bytes.clone(); truncated.pop(); assert!(decode(&truncated).is_err());
+        }
+        assert_eq!(newline_of("a\r\nb"), "\r\n");
+        assert_eq!(newline_of("a\nb"), "\n");
+        assert_eq!(newline_of("abc"), "\n");
+        assert_eq!(fingerprint_bytes(b"abc"), fingerprint_bytes(b"abc"));
+        assert_ne!(fingerprint_bytes(b"abc"), fingerprint_bytes(b"abd"));
+    }
+}
+
+

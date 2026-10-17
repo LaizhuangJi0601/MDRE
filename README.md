@@ -2,11 +2,11 @@
 
 ## 关于MDRE
 
-MDRE（Markdown Rendering Editor）是 Windows 本地 Markdown 编辑器，当前版本为 **0.2.2**。
+MDRE（Markdown Rendering Editor）是 Windows 本地 Markdown 编辑器，当前版本为 **0.2.4**。
 
 支持 Markdown 源码与富文本同步编辑、数学公式可视化编辑、Mermaid 图表、代码语法高亮，以及 HTML / PDF 导出。A4 纸张模式支持连续或分页排版，以及 25%–250% 缩放；分页模式每行最多显示 3 页，并提供页码与正文对齐设置。文件列表与大纲位于可调整宽度的侧栏中，大纲内容超出可用区域时可滚动查看。启动时恢复上次打开的文件夹与未关闭的文档；最近打开的文件与文件夹各保留最多 5 项。编辑与渲染资源随程序提供，可离线使用。
 
-0.2.2 使用透明 MD 字母 Logo；关联的 Markdown 文件保留独立的折角纸张图标。版本变更见 [更新记录](CHANGELOG.md)。
+0.2.4 汇总 0.2.2、0.2.3 的全部更新，并修复本地绝对路径图片的 HTML／PDF 导出问题。0.2.2 使用透明 MD 字母 Logo；关联的 Markdown 文件保留独立的折角纸张图标。版本变更见 [更新记录](CHANGELOG.md)。
 
 界面采用按类别分组的单行工具栏，支持下划线、颜色、高亮、图片宽度和代码块主题设置。欢迎页提供新建和打开文件入口。操作方法见 [MDRE使用](docs/help/MDRE使用.md)。
 
@@ -63,3 +63,8 @@ pnpm app:build
 | [highlight.js](https://github.com/highlightjs/highlight.js) | 代码语法高亮。 |
 
 第三方组件及授权说明见 [MDRE声明](docs/help/MDRE声明.md) 和 [第三方依赖清单](docs/licenses/依赖清单.md)，授权原文见 [许可证文本](docs/licenses/许可证文本.txt)。
+
+## 0.2.4
+
+汇总 0.2.2、0.2.3 的全部更新，并修复 HTML／PDF 导出对本地绝对路径图片的误判：视图预设、px／em 字号单位、表格多选批量对齐、查找上一个匹配、PDF 分页／长页导出、插件自动保存等。详见离线帮助与 [更新说明](docs/releases/0.2.4.md)。
+

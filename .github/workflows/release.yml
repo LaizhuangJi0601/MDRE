@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          notes="docs/releases/${version}.md"
+          title="MDRE for Windows ${tag}"
+          if [ -f "$notes" ]; then
+            gh release create "$tag" mdre.exe SHA256SUMS.txt --title "$title" --notes-file "$notes"
+          else
+            gh release create "$tag" mdre.exe SHA256SUMS.txt --title "$title" --generate-notes
+          fi
