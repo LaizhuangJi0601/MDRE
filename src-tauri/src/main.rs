@@ -155,7 +155,7 @@ fn main() {
             explorer::pick_folder, explorer::list_directory, explorer::create_document,
             export_pdf,
             persistence::write_recovery, persistence::read_recovery, persistence::discard_recovery, persistence::discard_recovery_dir, persistence::save_image, persistence::read_image,
-            files::read_text_file, files::write_text_file, files::rotate_backup, files::copy_resource, files::read_document_image, files::pick_file, files::pick_export, files::write_export, files::read_binary,
+            files::read_text_file, files::write_text_file, files::rotate_backup, files::copy_resource, files::read_document_image, files::pick_file, files::pick_export, files::write_export, files::write_export_binary, files::read_binary,
             files::read_settings, files::write_settings, files::open_external, files::rename_document, files::reveal_document,
             files::register_file_association, files::file_association_status, files::settings_directory, files::open_settings_directory
         ])

@@ -25,7 +25,7 @@ import { formulaTarget, formulaEdit, mathUnsupported, type FormulaTarget } from 
 import { imagePaths, imagePathsFromText, imageFileUri } from './image-path';
 import { imageExtension, imageMarkdown, resolveImage, saveImage, savedImageSource } from './assets';
 import { convertBlock, moveBlock, deleteBlock, indentListItem, nestQuote, withFollowingParagraph, type BlockKind } from './blocks';
-import { insertTable, insertRow, removeRow, insertColumn, removeColumn, setTableCell, setCellAlignment, setCellsAlignment } from './tables';
+import { insertTable, insertRow, removeRow, insertColumn, removeColumn, setTableCell, setColumnsAlignment } from './tables';
 import { projectSelection, mapRenderRange, viewOffset } from './mapping';
 import { DocumentSession, Workspace, type Draft, type Selection, type Ticket } from './session';
 import { staticHtml, safeUrl, exportAppearance } from './export';
@@ -56,6 +56,8 @@ import { setupPreferences } from './ui/preferences';
 import { colorTransaction } from './ui/color-format';
 import { contextMenu, type ContextItem } from './ui/context-menu';
 import { positionDialog } from './ui/dialogs';
+import { notifyDocument, pasteInterceptors, menuPasteHandlers, editorContextHooks, provideV025Env, callV025Api } from './v025/runtime';
+import { initV025 } from './v025';
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = shell;
 groupToolbar();
@@ -225,6 +227,7 @@ const source = new CMView({
     // S-36：多光标。Ctrl+点击增删光标、Alt+拖动列选择由 CodeMirror 原生处理，这里开启多选与选区绘制。
     CMState.allowMultipleSelections.of(true), drawSelection(), rectangularSelection(), crosshairCursor(), CMState.transactionFilter.of(tr => tr.docChanged && (!workspace.active || workspace.active.readOnly) && !mirror ? [] : tr), CMView.domEventHandlers({
     paste: (event) => {
+      for (const intercept of pasteInterceptors) if (intercept(event, 'source')) return true;
       const paths = imagePaths(event.clipboardData); if (paths.length) { event.preventDefault(); action(() => insertImagesFromPaths(paths)); return true; }
       const files = imageFiles(event.clipboardData);
       if (!files.length && !event.clipboardData?.getData('text/plain') && !event.clipboardData?.getData('text/html')) {
@@ -387,6 +390,7 @@ const render = new EditorView($('render'), {
     } catch (reason) { render.updateState(render.state); throw reason; } });
   },
   handlePaste(view, event) {
+    for (const intercept of pasteInterceptors) if (intercept(event as ClipboardEvent, 'render')) return true;
     const paths = imagePaths(event.clipboardData); if (paths.length) { event.preventDefault(); action(() => insertImagesFromPaths(paths)); return true; }
       const files = imageFiles(event.clipboardData);
       if (!files.length && !event.clipboardData?.getData('text/plain') && !event.clipboardData?.getData('text/html')) {
@@ -457,9 +461,15 @@ const render = new EditorView($('render'), {
     table_cell(node) {
       const dom = document.createElement(node.attrs.header ? 'th' : 'td');
       dom.dataset.block = node.attrs.id; dom.dataset.cell = node.attrs.id;
+      // v0.2.5：合并单元格与上下居中由表格数据层写入节点属性，这里映射到真实表格 DOM。
+      const rowspan = Number(node.attrs.rowspan ?? 1), colspan = Number(node.attrs.colspan ?? 1);
+      if (rowspan > 1) dom.rowSpan = rowspan;
+      if (colspan > 1) dom.colSpan = colspan;
       if (node.attrs.cellAlign || node.attrs.align) dom.style.textAlign = String(node.attrs.cellAlign || node.attrs.align);
+      if (node.attrs.vAlign) dom.style.verticalAlign = String(node.attrs.vAlign);
       const contentDOM = document.createElement('div'); contentDOM.className = 'cell-content'; dom.append(contentDOM);
-      return { dom, contentDOM };
+      // 单元格上的临时状态类（多选高亮、拖拽预览）不属于文档内容，不能触发整表重绘。
+      return { dom, contentDOM, ignoreMutation: mutation => mutation.type === 'attributes' };
     },
   },
 });
@@ -500,6 +510,7 @@ function applyPreview(ticket: Ticket) {
   doc.renderMs = performance.now() - started;
   renderTiming(doc);
   doc.parseMs = 0;
+  notifyDocument(doc, 'preview');
 }
 function renderTiming(doc: DocumentSession) {
   const hint = $('render-timing'), elapsed = doc.parseMs + doc.renderMs;
@@ -550,6 +561,7 @@ function showDocument() {
   mirrorSource(); if (doc.modelStale) schedulePreview(); else applyPreview(doc.ticket('parse')); restoreSelections(); restoreView(doc, render, source); status(); scrollSync?.reset();
   // 从隐藏源码栏恢复后，等 CodeMirror 完成实际行高测量，再按渲染锚点同步。
   source.requestMeasure({ read: () => doc.ticket('layout'), write: ticket => { if (workspace.accept(ticket)) scrollSync?.reset(); } });
+  notifyDocument(doc, 'show');
 }
 // 源码栏可见性不改变文档、阅读模式或撤销历史。
 function applySourceVisibility() {
@@ -1751,10 +1763,11 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
     else if (origin === 'source') source.dispatch({ changes: { from: source.state.selection.main.from, to: source.state.selection.main.to, insert: text }, selection: { anchor: source.state.selection.main.from + text.length } });
     else { const normalized = text.replace(/\r\n|\r/g, '\n'); if (!normalized.includes('\n')) render.dispatch(render.state.tr.insertText(normalized)); else if (cellAt(render.state)) { const nodes: PMNode[] = []; normalized.split('\n').forEach((line, i) => { if (i) nodes.push(schema.nodes.hard_break.create()); if (line) nodes.push(schema.text(line)); }); render.dispatch(render.state.tr.replaceSelection(new Slice(Fragment.from(nodes), 0, 0))); } else { const nodes = normalized.split(/\n+/).map(line => schema.nodes.paragraph.create(null, line ? schema.text(line) : null)); render.dispatch(render.state.tr.replaceSelection(new Slice(Fragment.from(nodes), 1, 1))); } }
   };
+  const runMenuPaste = async () => { for (const handler of menuPasteHandlers) if (await handler()) return true; return false; };
   const items: ContextItem[] = [
     item('copy', '复制', async () => { await navigator.clipboard.writeText(copyText()); }, !selected, 'copy', 'Ctrl+C'),
     item('cut', '剪切', async () => { await navigator.clipboard.writeText(copyText()); if (!workspace.accept(ticket)) throw new Error('选区已变化，请重新剪切。'); pasteText(''); }, !selected || !writable, 'cut', 'Ctrl+X'),
-    item('paste', '粘贴', async () => { const paths = await invoke<string[] | null>('clipboard_image_paths'); if (paths?.length) { if (!workspace.accept(ticket)) throw new Error('文档已变化，请重新粘贴。'); await insertImagesFromPaths(paths); return; } const text = await navigator.clipboard.readText(); if (!workspace.accept(ticket)) throw new Error('文档已变化，请重新粘贴。'); const textPaths = imagePathsFromText(text); if (textPaths.length) await insertImagesFromPaths(textPaths); else pasteText(text); }, !writable, 'paste', 'Ctrl+V'),
+    item('paste', '粘贴', async () => { if (await runMenuPaste()) return; const paths = await invoke<string[] | null>('clipboard_image_paths'); if (paths?.length) { if (!workspace.accept(ticket)) throw new Error('文档已变化，请重新粘贴。'); await insertImagesFromPaths(paths); return; } const text = await navigator.clipboard.readText(); if (!workspace.accept(ticket)) throw new Error('文档已变化，请重新粘贴。'); const textPaths = imagePathsFromText(text); if (textPaths.length) await insertImagesFromPaths(textPaths); else pasteText(text); }, !writable, 'paste', 'Ctrl+V'),
     item('select-all', '全选', () => { if (control) control.select(); else if (origin === 'source') source.dispatch({ selection: { anchor: 0, head: source.state.doc.length } }); else render.dispatch(render.state.tr.setSelection(TextSelection.between(render.state.doc.resolve(0), render.state.doc.resolve(render.state.doc.content.size)))); }, false, 'selectAll', 'Ctrl+A'),
     { id: 'sep-clipboard', label: '', separator: true },
     item('undo', '撤销', () => travel(false), !writable, 'undo', 'Ctrl+Z'), item('redo', '重做', () => travel(true), !writable, 'redo', 'Ctrl+Y'),
@@ -1794,7 +1807,7 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
     const inherited = /center/.test(style.textAlign) ? 'center' : /right/.test(style.textAlign) || (style.textAlign === 'start' && style.direction === 'rtl') || (style.textAlign === 'end' && style.direction !== 'rtl') ? 'right' : 'left';
     const alignment = block.node.attrs.cellAlign || block.node.attrs.align || inherited;
     const children: ContextItem[] = (['left', 'center', 'right'] as const).map((align, index) => ({
-      ...item(`align-${align}`, ['左对齐', '居中', '右对齐'][index], () => structural(setCellsAlignment(doc.model, selectedTableCells(cell), align), undefined, 'render'), !writable), checked: alignment === align,
+      ...item(`align-${align}`, ['左对齐', '左右居中', '右对齐'][index], () => structural(setColumnsAlignment(doc.model, selectedTableCells(cell), align), undefined, 'render'), !writable), checked: alignment === align,
     }));
     children.push(item('table-select-all', '全选表格', () => tableSelection.selectAll(cell), false, 'selectAll'));
     children.push({ id: 'sep-align', label: '', separator: true });
@@ -1824,6 +1837,7 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
     items.push({ id: 'block-operations', label: '块操作', icon: 'swap', children });
   }
   if (!items.some(item => item.id === 'table-operations')) items.push({ id: 'table-operations', label: '表格', icon: 'table', disabled: true });
+  for (const extend of editorContextHooks) extend({ doc, origin, items, cell, writable, selected, run, copyText, pasteText, tableCells: cell ? selectedTableCells(cell) : [] });
   const order = ['format', 'mark-color', 'headings', 'mark-bg', 'mark-size', 'insert', 'table-operations', 'block-operations'];
   const fixed = items.slice(0, items.findIndex(item => item.id === 'format'));
   editorContext.open([...fixed, ...order.flatMap(id => items.filter(item => item.id === id))], event.clientX, event.clientY);
@@ -2192,26 +2206,27 @@ try {
   renderMenuShortcuts();
 } catch (reason) { console.error('设置界面初始化失败', reason); throw reason; }
 // 原型验收桥：只暴露当前应用内的文档状态与统一 IPC 入口，不参与导出页面。
-Object.assign(window, { mdre: { workspace, source, render, recovery, schedulePreview, exportPdf, exportHtml, openDraft, openFloating, closeFloating, showDocument, staticHtml, switchTo, resolveImage, saveQueue, openPath, saveDocument, saveTo, closeTab, newBlankTab, cycleTab, autosaveNow, closeWindow, invoke, closeRequest: () => getCurrentWindow().close(), get allowClose() { return allowClose; }, get composing() { return compositionBase !== null || !!workspace.active?.composition; }, filesPanel, paper, sidebar, get queuedRefresh() { return queuedRefresh; } } });
+Object.assign(window, { mdre: { workspace, source, render, recovery, schedulePreview, exportPdf, exportHtml, openDraft, openFloating, closeFloating, showDocument, staticHtml, switchTo, resolveImage, saveQueue, openPath, saveDocument, saveTo, closeTab, newBlankTab, cycleTab, autosaveNow, closeWindow, invoke, v025: (name: string, ...args: unknown[]) => callV025Api(name, ...args), exportShareCopy: (path?: string) => callV025Api('exportShareCopy', path), closeRequest: () => getCurrentWindow().close(), get allowClose() { return allowClose; }, get composing() { return compositionBase !== null || !!workspace.active?.composition; }, filesPanel, paper, sidebar, get queuedRefresh() { return queuedRefresh; } } });
 if (workspaceRestoreErrors.length) error(workspaceRestoreErrors.join('\n'));
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// MDRE 0.2.5：图片管理、可分享副本、剪贴板互通与表格操作统一从扩展模块接入。
+provideV025Env({
+  platform: 'desktop',
+  workspace, render, source, schema,
+  isTauri: () => isTauri(),
+  invoke: <T = unknown>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args as Record<string, unknown> | undefined),
+  structural: (edit, cursor, origin) => structural(edit, cursor, origin ?? workspace.active.selection.active),
+  error: reason => error(reason),
+  status: () => status(),
+  message: text => { $('status-text').textContent = text; },
+  flushInline: doc => flushInline(doc),
+  documentTitle: doc => documentTitle(doc),
+  resolveImage: (doc, source) => resolveImage(doc, source),
+  copyText: async text => { await navigator.clipboard.writeText(text); },
+  readText: () => navigator.clipboard.readText(),
+  openFloating: dialog => openFloating(dialog),
+  closeFloating: dialog => closeFloating(dialog),
+  settings: () => settings(),
+  saveSettings: patch => saveSettings(patch),
+});
+initV025();

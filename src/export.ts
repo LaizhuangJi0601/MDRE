@@ -1,5 +1,5 @@
 import hljs from 'highlight.js';
-import { markdown } from './model';
+import { markdown, normalizeWidths, parseWidthList } from './model';
 import { renderDiagramImage } from './render/mermaid';
 import { renderMath, sanitizeHtml, tocHtml, type TocEntry } from './render/markdown';
 import { codeLanguageName } from './ui/code-language';
@@ -34,6 +34,28 @@ markdown.renderer.rules.link_open = (tokens, i, options, env, renderer) => {
   tokens[i].attrSet('rel', 'noopener noreferrer');
   return renderer.renderToken(tokens, i, options);
 };
+// v0.2.5：GFM 表格后的 mdre:table-widths 注释在导出时转成 colgroup + 固定布局，
+// HTML 格式表格由源码原样保留（含 colgroup 与跨度），两者都按百分比渲染。
+const defaultTableOpen = markdown.renderer.rules.table_open;
+markdown.renderer.rules.table_open = (tokens, index, options, env, renderer) => {
+  const opening = defaultTableOpen ? defaultTableOpen(tokens, index, options, env, renderer) : renderer.renderToken(tokens, index, options);
+  let close = tokens.length;
+  for (let cursor = index + 1; cursor < tokens.length; cursor++) if (tokens[cursor].type === 'table_close') { close = cursor; break; }
+  const comment = tokens[close + 1];
+  if (comment?.type !== 'html_block') return opening;
+  const match = /^[ \t]*<!--[ \t]*mdre:table-widths[ \t]*:[ \t]*([^>]*?)[ \t]*-->/.exec(comment.content);
+  if (!match) return opening;
+  const values = parseWidthList(match[1]);
+  if (!values) return opening;
+  let columns = 0;
+  for (let cursor = index + 1; cursor < close; cursor++) if (tokens[cursor].type === 'th_open') columns++;
+  if (columns !== values.length) return opening;
+  const widths = normalizeWidths(values);
+  if (!widths) return opening;
+  tokens[index].attrSet('style', 'table-layout:fixed;width:100%');
+  return (defaultTableOpen ? defaultTableOpen(tokens, index, options, env, renderer) : renderer.renderToken(tokens, index, options))
+    + `<colgroup>${widths.map(width => `<col style="width:${width}%">`).join('')}</colgroup>\n`;
+};
 
 export const printCss = `
 @page { size:A4; margin:15mm }
@@ -53,9 +75,12 @@ code { overflow-wrap:anywhere }
 .code-header { padding:7px 12px; border-bottom:1px solid var(--code-border); color:var(--code-fg); font:12px/1.5 "Segoe UI","Microsoft YaHei",sans-serif; break-after:avoid; }
 .code-block pre { margin:0; border:0; border-radius:0; background:transparent; color:inherit; }
 .code-block code { font:inherit; color:inherit; background:transparent; }
-table { border-collapse:collapse; width:100%; table-layout:fixed; font-size:10pt; margin:16px 0 }
-th,td { border:1px solid #c6ced8; padding:6px 8px; overflow-wrap:anywhere }
+table { border-collapse:collapse; width:100%; max-width:100%; table-layout:fixed; font-size:10pt; margin:16px 0 }
+th,td { border:1px solid #c6ced8; padding:6px 8px; overflow-wrap:anywhere; word-break:break-word; vertical-align:top; break-inside:avoid }
+th { background:#f2f5f8; font-weight:600 }
 thead { display:table-header-group } tr { break-inside:avoid }
+colgroup { break-inside:avoid }
+a,code { overflow-wrap:anywhere; word-break:break-word }
 img,figure > svg { max-width:100%; height:auto } figure { margin:16px 0; break-inside:avoid }
 blockquote { border-left:3px solid #a9bdcf; margin-left:0; padding-left:15px }
 .raw-html { white-space:pre-wrap } .resource-error { color:#ad2635 }
@@ -122,6 +147,10 @@ export async function staticHtml(source: string, resolve?: (src: string) => Prom
     inline.children[0].content=inline.children[0].content.slice(task[0].length);
   }
   container.innerHTML = markdown.renderer.render(tokens,markdown.options,env);
+  // v0.2.5：列宽注释只参与排版计算，导出快照中不保留 MDRE 私有注释。
+  for (const node of Array.from(container.childNodes)) {
+    if (node.nodeType === Node.COMMENT_NODE && /^\s*mdre:table-widths\s*:/.test((node as Comment).data)) node.remove();
+  }
   let sequence = 0;
   let codeIndex = 0;
   for (const code of container.querySelectorAll('pre > code')) {
@@ -189,6 +218,16 @@ export async function staticHtml(source: string, resolve?: (src: string) => Prom
       // 内容居中、编号靠右：两边均预留编号宽度，避免编号压到最长公式行。
       const width=content+(tag ? 2*(tag.getBoundingClientRect().width+parseFloat(styling.style.fontSize)) : 0);
       if (width>container.clientWidth) block.style.fontSize=`${parseFloat(styling.style.fontSize)*container.clientWidth/width*0.995}px`;
+    }
+    // v0.2.5：表格按百分比排版，A4 页宽内不横向截断；源码带固定像素宽度导致超宽时等比压缩字号。
+    for (const table of Array.from(container.querySelectorAll<HTMLTableElement>('table'))) {
+      const width = table.getBoundingClientRect().width;
+      if (width <= container.clientWidth + 1) continue;
+      const ratio = container.clientWidth / width;
+      const current = Number.parseFloat(getComputedStyle(table).fontSize) || 10;
+      table.style.fontSize = `${Math.max(6, current * ratio * 0.995)}pt`;
+      table.style.tableLayout = 'fixed';
+      table.style.width = '100%';
     }
   } finally { container.remove(); }
   const body=container.innerHTML;

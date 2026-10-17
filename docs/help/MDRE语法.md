@@ -1,6 +1,6 @@
 # Markdown语法
 
-适用于 **MDRE 0.2.4**。示例中的 ↵ 表示换行；两个 ↵ 表示空行。标准语法以 CommonMark 为基础，表格等通用扩展的支持范围因阅读器而异。
+适用于 **MDRE 0.2.5**。示例中的 ↵ 表示换行；两个 ↵ 表示空行。标准语法以 CommonMark 为基础，表格等通用扩展的支持范围因阅读器而异。
 
 ## 标准语法
 
@@ -65,23 +65,73 @@
 | `{bg:#fff3b0}文字{/bg}` | MDRE 指定高亮背景色；取值规则同文字颜色。 | MDRE 自定义 |
 | `{size:1.25em}文字{/size}`；`{size:18px}文字{/size}` | 字号：使用大于 0 的有限数值，并附加 `em` 或 `px` 单位。 | MDRE 自定义 |
 | `![说明](image.png){w:400}` | 图片宽度：正整数，单位 px。 | MDRE 自定义 |
+| `<!-- mdre:table-widths: 25%,40%,35% -->` | 表格列宽注释：位于表格之后（中间可隔空行），按列顺序以百分比指定列宽；数量与表格列数不一致时忽略该注释并回退自动布局。 | MDRE 自定义 |
 | `{color:red}{bg:yellow}文字{/bg}{/color}` | 样式可嵌套，按相反顺序闭合；不符合语法要求的标签按原文显示。 | MDRE 自定义 |
 
-备注：颜色、背景色、字号的成对标签不能跨行，可嵌套且必须按相反顺序闭合；无效参数或未闭合标记按原文显示。代码块和行内代码中的标记不作为格式解析。自定义语法在其他阅读器中可能直接显示源码。
+备注：颜色、背景色、字号的成对标签不能跨行，可嵌套且必须按相反顺序闭合；无效参数或未闭合标记按原文显示。代码块和行内代码中的标记不作为格式解析。自定义语法在其他阅读器中可能直接显示源码；`mdre:table-widths` 注释会被其他编辑器当作普通注释忽略（表格正常显示，但不保留手动列宽）。
 
 ## 图片与表格
 
 图片优先引用原文件绝对 URI，例如 `![说明](<file:///D:/资料/图片.png>)`；空格、`#`、`%` 按 URI 规则编码。已有相对路径仍按 Markdown 文件所在目录解析。截图等无原文件的图片写入持久 `images` 目录，失败时才尝试 assets；不将原图默认复制进项目。
 
-管道表格分隔行中的冒号设置整列对齐。右键单元格 → **表格** → **左对齐／居中／右对齐** 设置当前单元格，菜单勾选当前有效状态；该操作保留其他单元格和列对齐。单格设置保存为下述标准 HTML 包装，格内仍可包含 Markdown、公式和普通行内 HTML：
+管道表格分隔行中的冒号设置整列对齐：`:---` 左对齐、`:---:` 左右居中、`---:` 右对齐。右键单元格 → **表格** → **左对齐／左右居中／右对齐** 会把选中单元格所在列的对齐写入分隔行，其余列保持原对齐；整个对齐操作一步撤销。HTML 表格则把对齐写入单元格的 `text-align` 样式。
 
 ```markdown
-| 名称 | 数值 |
-| --- | ---: |
-| <span style="display:block;text-align:center">**示例**</span> | 123 |
+| 左对齐 | 左右居中 | 右对齐 |
+| :--- | :---: | ---: |
+| 示例 | 123 | 456 |
 ```
 
-备注：MDRE 识别上述完整包装并提供直接编辑。其他平台是否保留位置样式，取决于其 HTML 与 style 支持；例如过滤内联样式的平台可能使用默认对齐。
+备注：旧版本为单格写入的 `<span style="display:block;text-align:…">` 包装仍可识别并提供直接编辑，但新的对齐操作不再生成该包装。其他平台是否保留位置样式，取决于其 HTML 与 style 支持；例如过滤内联样式的平台可能使用默认对齐。
+
+### 列宽注释
+
+拖动列边框或使用右键 **表格** 菜单中的“均分各列／适应内容／恢复自动列宽”调整列宽后，MDRE 将列宽按百分比写在表格之后的 HTML 注释中（与表格之间可隔空行），取表格后首个 `mdre:table-widths` 注释：
+
+```markdown
+| 名称 | 数值 | 备注 |
+| --- | ---: | :---: |
+| 示例 | 123 | 说明 |
+
+<!-- mdre:table-widths: 25%,40%,35% -->
+```
+
+注释中的百分比按列顺序对应各列，最小列宽 4%、总宽不超过 100%。其他 Markdown 编辑器把它当作普通注释忽略，因此表格仍能正常显示，但不保留手动列宽。插删列会同步更新注释；列数或注释数量不一致时，MDRE 忽略该注释并按自动列宽显示。
+
+### HTML 表格与合并单元格
+
+首次合并单元格或首次启用“上下居中”时，MDRE 会把整张表格转为 HTML 表格，写入 `rowspan`／`colspan`、`colgroup` 列宽与单元格样式：
+
+```html
+<table>
+  <colgroup>
+    <col style="width:25%">
+    <col style="width:40%">
+    <col style="width:35%">
+  </colgroup>
+  <thead>
+    <tr><th>名称</th><th>数值</th><th>备注</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="2" style="vertical-align:middle;text-align:center">示例</td>
+      <td style="text-align:right">123</td>
+      <td>说明</td>
+    </tr>
+    <tr>
+      <td>456</td>
+      <td>另一行</td>
+    </tr>
+  </tbody>
+</table>
+```
+
+- `rowspan`／`colspan` 表示跨行与跨列；`colgroup` 中的 `col style="width:…"` 保存列宽；`vertical-align:middle` 表示上下居中，`text-align` 表示水平对齐。
+- 合并只接受矩形区域，内容按阅读顺序用换行合并；拆分后内容留在左上单元格。
+- 右键 **表格 → 转换为 Markdown 表格** 仅在表格无合并、无上下居中时可用：列宽保留为注释，水平对齐按每列首行写回分隔行，列内混合对齐按左对齐处理。
+- 导出 HTML／PDF 会保留列宽、合并单元格和两种对齐；合并单元格不会被跨页拆开。
+
+备注：只支持标准管道表格的 Markdown 阅读器可能把 HTML 表格或 `mdre:table-widths` 注释显示为源码；其他编辑器保存后可能丢失这些格式，此类文档建议在 MDRE 中编辑。
 
 # HTML语法
 
@@ -103,7 +153,7 @@ HTML 按原有标签与属性保存，不自动改写为 Markdown。简单行内
 | 链接 | `<a href="#section-id">跳转</a>` | 页内链接可直接点击；编辑时外链用 Ctrl＋单击 |
 | 图片 | `<img src="image.png" alt="说明" width="400">` | 支持相对路径、file URI、HTTPS、图片 data URI |
 | 图像映射 | `map area` | 保留区域与链接属性 |
-| 表格 | `table caption colgroup col thead tbody tfoot tr th td` | 可保留 colspan、rowspan、align、scope、headers |
+| 表格 | `table caption colgroup col thead tbody tfoot tr th td` | 可保留 colspan、rowspan、align、scope、headers 与单元格 style；合并单元格的表格可在 MDRE 中继续编辑。 |
 | 折叠内容 | `<details><summary>标题</summary>内容</details>` | 保留 open 属性 |
 | 表单外观 | `form fieldset legend label input button select optgroup option textarea datalist output progress meter` | 输入、按钮、选择、文本域禁用，仅展示 |
 | 音视频 | `audio video source track` | 使用 HTTPS 来源；支持 controls、loop、muted 等属性 |
@@ -122,7 +172,7 @@ HTML 按原有标签与属性保存，不自动改写为 Markdown。简单行内
 | `<u>文字</u>` | 下划线 | 工具栏 U 使用此写法，可与其他格式组合 |
 | `<mark style="background-color:#FFF2CC" title="批注">正文</mark>` | 高亮及悬停批注 | 原有 style、title、data-comments 保留 |
 | `<span style="color:#3e63dd;font-size:18px">文字</span>` | 颜色和字号 | 已有 HTML 保留；工具栏仍写入 MDRE 格式标签 |
-| `<span style="display:block;text-align:right">文字</span>` | 单格内容水平对齐 | 在表格格内完整包裹内容，支持 left、center、right |
+| `<span style="display:block;text-align:right">文字</span>` | 单格内容水平对齐（旧版写法） | 仍可识别并直接编辑；新的对齐操作在 GFM 表格写分隔行、HTML 表格写单元格 `text-align` 样式 |
 | `id class style title lang dir` | 通用属性 | 只保留允许的属性及样式 |
 | `data-* aria-*` | 自定义数据与无障碍属性 | 保留属性，不执行附加逻辑 |
 
@@ -133,10 +183,9 @@ HTML 标签本身采用标准写法，没有额外的 MDRE HTML 标签。单元�
 - 脚本、事件属性、iframe、object 等不会执行；任意网页样式表不会加载，不等同于完整网页浏览器。
 - 相对图片与链接可保留；本地音视频目前不走图片资源解析，不保证播放。
 - 表单控件仅用于文档展示，不能作为编辑器输入控件。
-- HTML 表格中的合并单元格可显示；本次右键行列与单格对齐功能用于 Markdown 管道表格。
+- HTML 表格与 GFM 管道表格均可通过右键“表格”菜单操作；合并单元格或上下居中会把表格保存为 HTML 表格，其他仅支持标准 Markdown 表格的编辑器可能显示源码。
 - SVG／MathML 保留受支持的标签、必要属性及自闭合结构；具体显示受浏览器排版能力影响。
 
 ## 数字段落与列表内空段
 
 普通段落使用 `1\. 说明`，有序列表使用 `1. 说明`。旧版数字实体保持兼容。复杂列表内部的额外空段使用标准 HTML `<p></p>` 保存；它在富文本中仍是可编辑空段落。
-

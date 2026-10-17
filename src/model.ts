@@ -2,6 +2,7 @@ import MarkdownIt from 'markdown-it';
 import type Token from 'markdown-it/lib/token.mjs';
 import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs';
 import { Schema, Node as PMNode, Mark } from 'prosemirror-model';
+import { decodeHTML } from 'entities';
 import { sanitizeHtml, htmlInlineTags } from './render/html';
 import { absoluteImagePath } from './image-path';
 import { alignedCell } from './table-alignment';
@@ -38,9 +39,37 @@ export const schema = new Schema({
     bullet_list: { content: 'list_item+', group: 'block', attrs: blockAttrs, toDOM: n => ['ul', { 'data-block': n.attrs.id }, 0] },
     ordered_list: { content: 'list_item+', group: 'block', attrs: { ...blockAttrs, order: { default: 1 } }, toDOM: n => ['ol', { start: n.attrs.order, 'data-block': n.attrs.id }, 0] },
     list_item: { content: 'block+', attrs: { ...blockAttrs, checked: { default: null } }, toDOM: n => ['li', { 'data-block': n.attrs.id, 'data-item': n.attrs.id, 'data-checked': n.attrs.checked }, 0] },
-    table: { content: 'table_row+', group: 'block', attrs: blockAttrs, toDOM: n => ['table', { 'data-block': n.attrs.id }, ['tbody', 0]] },
-    table_row: { content: 'table_cell+', attrs: { ...blockAttrs, header: { default: false } }, toDOM: n => ['tr', { 'data-block': n.attrs.id }, 0] },
-    table_cell: { content: 'inline*', isolating: true, attrs: { ...blockAttrs, header: { default: false }, align: { default: '' }, cellAlign: { default: null } }, toDOM: n => [n.attrs.header ? 'th' : 'td', { 'data-block': n.attrs.id, 'data-cell': n.attrs.id, ...((n.attrs.cellAlign || n.attrs.align) ? { style: `text-align:${n.attrs.cellAlign || n.attrs.align}` } : {}) }, 0] },
+    // v0.2.5：表格支持 gfm/html 两种格式、百分比列宽与合并单元格跨度。
+    table: {
+      content: 'table_row+', group: 'block',
+      attrs: { ...blockAttrs, format: { default: 'gfm' }, widths: { default: null }, widthMismatch: { default: false } },
+      toDOM: n => {
+        const widths = normalizeWidths(n.attrs.widths as number[] | null | undefined);
+        const attrs: Record<string, unknown> = { 'data-block': n.attrs.id, 'data-format': n.attrs.format };
+        const children: unknown[] = [];
+        if (widths) {
+          attrs.style = 'table-layout:fixed';
+          children.push(['colgroup', ...widths.map((width: number) => ['col', { style: `width:${width}%` }])]);
+        }
+        children.push(['tbody', 0]);
+        return ['table', attrs, ...children] as never;
+      },
+    },
+    table_row: { content: 'table_cell*', attrs: { ...blockAttrs, header: { default: false } }, toDOM: n => ['tr', { 'data-block': n.attrs.id }, 0] },
+    table_cell: {
+      content: 'inline*', isolating: true,
+      attrs: { ...blockAttrs, header: { default: false }, align: { default: '' }, cellAlign: { default: null }, rowspan: { default: 1 }, colspan: { default: 1 }, vAlign: { default: '' } },
+      toDOM: n => {
+        const attrs: Record<string, unknown> = { 'data-block': n.attrs.id, 'data-cell': n.attrs.id };
+        if (Number(n.attrs.rowspan ?? 1) > 1) attrs.rowspan = n.attrs.rowspan;
+        if (Number(n.attrs.colspan ?? 1) > 1) attrs.colspan = n.attrs.colspan;
+        const styles: string[] = [];
+        if (n.attrs.cellAlign || n.attrs.align) styles.push(`text-align:${n.attrs.cellAlign || n.attrs.align}`);
+        if (n.attrs.vAlign) styles.push(`vertical-align:${n.attrs.vAlign}`);
+        if (styles.length) attrs.style = styles.join(';');
+        return [n.attrs.header ? 'th' : 'td', attrs, 0] as never;
+      },
+    },
     opaque: { group: 'block', atom: true, selectable: true, attrs: { ...blockAttrs, raw: { default: '' }, kind: { default: 'source' }, content: { default: '' }, info: { default: '' } }, toDOM: n => ['div', { class: 'opaque', 'data-block': n.attrs.id }, `${n.attrs.kind} · 双击编辑源码`] },
     image: { inline: true, group: 'inline', atom: true, attrs: { src: {}, alt: { default: '' }, title: { default: '' }, width: { default: null }, dimensions: { default: null } }, toDOM: n => ['img', { src: n.attrs.src, alt: n.attrs.alt, title: n.attrs.title, ...(n.attrs.width ? { width: n.attrs.width } : {}) }] },
     raw_inline: { inline: true, group: 'inline', atom: true, attrs: { raw: {} }, toDOM: n => ['code', { class: 'raw-inline' }, n.attrs.raw] },
@@ -82,6 +111,145 @@ export const schema = new Schema({
 
 type Trace = { range: Range; units: Range[] };
 type Traced = Token & { meta: Trace | null };
+
+// v0.2.5：表格列宽与原始 HTML 表格的解析。列宽统一存百分比数值。
+export type TableAlignValue = 'left' | 'center' | 'right' | '';
+export type TableVAlignValue = 'top' | 'middle' | 'bottom' | '';
+/** 渲染用：把任意正数权重归一化为总和 100 的百分比（两位小数）。 */
+export function normalizeWidths(widths: number[] | null | undefined): number[] | null {
+  if (!widths?.length) return null;
+  const values = widths.map(Number);
+  if (!values.every(value => Number.isFinite(value) && value > 0)) return null;
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (!(total > 0)) return null;
+  return values.map(value => Math.round(value * 10000 / total) / 100);
+}
+/** 源码写回用：保留存储值，只做两位小数格式化。 */
+export function formatWidthList(widths: number[]): string[] {
+  return widths.map(width => `${Math.round(width * 100) / 100}%`);
+}
+export function parseWidthList(text: string): number[] | null {
+  const parts = text.split(/[,，]/).map(part => part.trim()).filter(part => part !== '');
+  if (!parts.length) return null;
+  const values: number[] = [];
+  for (const part of parts) {
+    const match = /^(\d+(?:\.\d+)?)[ \t]*%?$/.exec(part);
+    if (!match) return null;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    values.push(value);
+  }
+  return values;
+}
+
+export type HtmlTableSource = {
+  bodyStart: number;
+  rows: { from: number; to: number; cells: { header: boolean; attrs: Record<string, string>; innerFrom: number; innerTo: number; rowspan: number; colspan: number; align: TableAlignValue; vAlign: TableVAlignValue }[] }[];
+  widths: number[] | null;
+  widthMismatch: boolean;
+  columns: number;
+};
+type HtmlTag = { closing: boolean; name: string; attrs: Record<string, string>; start: number; end: number; selfClosing: boolean };
+function htmlTags(text: string): HtmlTag[] {
+  const tags: HtmlTag[] = [];
+  const pattern = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    tags.push({ closing: !!match[1], name: match[2].toLowerCase(), attrs: htmlAttributes(match[3]), start: match.index, end: pattern.lastIndex, selfClosing: /\/\s*$/.test(match[3]) });
+  }
+  return tags;
+}
+function htmlAttributes(text: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const pattern = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'`=<>]+)))?/g;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    attrs[match[1].toLowerCase()] = decodeHTML(match[2] ?? match[3] ?? match[4] ?? '');
+  }
+  return attrs;
+}
+function htmlSpan(attrs: Record<string, string>, name: string): number {
+  const value = Number.parseInt(attrs[name] ?? '', 10);
+  return Number.isFinite(value) && value > 1 ? value : 1;
+}
+function htmlAlign(attrs: Record<string, string>): TableAlignValue {
+  const inline = /(?:^|;)\s*text-align\s*:\s*(left|center|right)/i.exec(attrs.style ?? '')?.[1].toLowerCase();
+  const value = inline ?? (attrs.align ?? '').toLowerCase();
+  return value === 'left' || value === 'center' || value === 'right' ? value : '';
+}
+function htmlVAlign(attrs: Record<string, string>): TableVAlignValue {
+  const inline = /(?:^|;)\s*vertical-align\s*:\s*(top|middle|bottom|center)/i.exec(attrs.style ?? '')?.[1].toLowerCase();
+  const value = inline ?? (attrs.valign ?? '').toLowerCase();
+  if (value === 'center') return 'middle';
+  return value === 'top' || value === 'middle' || value === 'bottom' ? value : '';
+}
+function htmlColWidth(attrs: Record<string, string>): number | null {
+  const percent = /(?:^|;)\s*width\s*:\s*([\d.]+)\s*%/i.exec(attrs.style ?? '')?.[1]
+    ?? /^([\d.]+)\s*%$/.exec(attrs.width ?? '')?.[1];
+  const value = Number(percent);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+// 顶层 HTML 表格块 → 可编辑结构；无法确定归属（嵌套/未闭合）时返回 null 由源码块降级处理。
+export function parseHtmlTableSource(raw: string): HtmlTableSource | null {
+  const open = /^[ \t]*<table\b(?:"[^"]*"|'[^']*'|[^>"'])*>/i.exec(raw);
+  if (!open) return null;
+  const start = open[0].length;
+  const close = /<\/table\s*>[ \t]*(?:\n)?$/i.exec(raw);
+  if (!close || close.index < start) return null;
+  const body = raw.slice(start, close.index);
+  const tags = htmlTags(body);
+  const rows: HtmlTableSource['rows'] = [];
+  const colWidths: (number | null)[] = [];
+  let hasColgroup = false;
+  let depth = 0, row: HtmlTableSource['rows'][number] | null = null, cell: HtmlTableSource['rows'][number]['cells'][number] | null = null;
+  for (const tag of tags) {
+    if (tag.name === 'table') {
+      depth += tag.closing ? -1 : 1;
+      if (depth < 0) return null;
+      continue;
+    }
+    if (depth > 0) continue;
+    if (tag.name === 'colgroup' && !tag.closing) { hasColgroup = true; continue; }
+    if (tag.name === 'col' && !tag.closing) { colWidths.push(htmlColWidth(tag.attrs)); continue; }
+    if (tag.name === 'tr') {
+      if (!tag.closing) { row = { from: tag.start, to: tag.end, cells: [] }; rows.push(row); }
+      else if (row) { row.to = tag.end; row = null; }
+      continue;
+    }
+    if (tag.name === 'td' || tag.name === 'th') {
+      if (!tag.closing && row) {
+        cell = { header: tag.name === 'th', attrs: tag.attrs, innerFrom: tag.end, innerTo: tag.end, rowspan: htmlSpan(tag.attrs, 'rowspan'), colspan: htmlSpan(tag.attrs, 'colspan'), align: htmlAlign(tag.attrs), vAlign: htmlVAlign(tag.attrs) };
+        row.cells.push(cell);
+      } else if (tag.closing && cell) { cell.innerTo = tag.start; cell = null; }
+      continue;
+    }
+  }
+  if (depth !== 0 || row || cell || !rows.length) return null;
+  const columns = htmlGridColumns(rows);
+  let widths: number[] | null = null, widthMismatch = false;
+  if (hasColgroup) {
+    if (colWidths.length && colWidths.length === columns && colWidths.every((value): value is number => value !== null)) widths = colWidths;
+    else if (colWidths.length) widthMismatch = true;
+  }
+  return { bodyStart: start, rows, widths, widthMismatch, columns };
+}
+function htmlGridColumns(rows: HtmlTableSource['rows']): number {
+  const slots: (boolean | undefined)[][] = [];
+  let columns = 0;
+  rows.forEach((row, r) => {
+    let column = 0;
+    for (const cell of row.cells) {
+      slots[r] ??= [];
+      while (slots[r][column]) column++;
+      for (let dr = 0; dr < cell.rowspan && r + dr < rows.length; dr++) {
+        slots[r + dr] ??= [];
+        for (let dc = 0; dc < cell.colspan; dc++) slots[r + dr][column + dc] = true;
+      }
+      column += cell.colspan;
+      columns = Math.max(columns, column);
+    }
+  });
+  return columns;
+}
+
 export const markdown = new MarkdownIt('commonmark', { html: true, linkify: false, typographer: false, xhtmlOut: false }).enable(['table', 'strikethrough']);
 (markdown.options as typeof markdown.options & { maxNesting: number }).maxNesting = 100;
 const validateLink = markdown.validateLink.bind(markdown);
@@ -646,9 +814,79 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
     }
   };
   collectFootnotes(tokens);
+  // v0.2.5：GFM 表格后的列宽注释（允许隔空行，取表格后首个）与原始 HTML 表格块。
+  let pendingWidths: { startNorm: number; endNorm: number; widths: number[] | null } | null = null;
+  let absorbedCommentStart: number | null = null;
+  function scanWidthComment(at: number): { startNorm: number; endNorm: number; widths: number[] | null } | null {
+    const gap = /^[ \t]*(?:\n[ \t]*)*/.exec(normalized.text.slice(at))![0];
+    const startNorm = at + gap.length;
+    const rest = normalized.text.slice(startNorm);
+    const match = /^<!--[ \t]*mdre:table-widths[ \t]*:[ \t]*([^>]*?)[ \t]*-->/.exec(rest);
+    if (!match) return null;
+    const after = /^[ \t]*(?:\n)?/.exec(rest.slice(match[0].length))![0];
+    return { startNorm, endNorm: startNorm + match[0].length + after.length, widths: parseWidthList(match[1]) };
+  }
+  function htmlCellContent(inner: string, baseNorm: number): { nodes: PMNode[]; chars: Character[]; atoms: Atom[] } {
+    let text = inner, prefix = 0;
+    // 整格被 <p>/<div> 包裹时拆到内层，保留可编辑的行内 Markdown。
+    for (let depth = 0; depth < 4; depth++) {
+      const wrapped = /^[ \t]*<(p|div)(?:\s[^>]*)?>([\s\S]*?)<\/\1>[ \t]*$/i.exec(text);
+      if (!wrapped) break;
+      const opening = /^[ \t]*<(?:p|div)(?:\s[^>]*)?>/i.exec(text)![0];
+      text = wrapped[2]; prefix += opening.length;
+    }
+    const content = parse(text);
+    const first = content.doc.firstChild;
+    if (first?.isTextblock) {
+      const map = (offset: number) => normalized.offsets[baseNorm + prefix + offset];
+      const chars: Character[] = content.chars.filter(char => char.pos < first.nodeSize).map(char => ({ ...char, from: map(char.from), to: map(char.to), pos: char.pos - 1 }));
+      const atoms: Atom[] = content.atoms.filter(atom => atom.pos < first.nodeSize).map(atom => ({ ...atom, from: map(atom.from), to: map(atom.to), pos: atom.pos - 1 }));
+      return { nodes: Array.from({ length: first.childCount }, (_, index) => first.child(index)), chars, atoms };
+    }
+    // 单元格内是块级 HTML 时退化为纯文本，保证内容不丢。
+    const plain = decodeHTML(text.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+    return { nodes: plain ? [schema.text(plain)] : [], chars: [], atoms: [] };
+  }
+  function addHtmlTableBlock(token: Token): boolean {
+    const startNorm = lines[token.map![0]], endNorm = lines[token.map![1]];
+    const raw = normalized.text.slice(startNorm, endNorm);
+    const parsed = parseHtmlTableSource(raw);
+    if (!parsed) return false;
+    addBlock('table', token, { format: 'html', widths: parsed.widths, widthMismatch: parsed.widthMismatch }, { from: normalized.offsets[startNorm], to: normalized.offsets[endNorm] });
+    const at = (offset: number) => normalized.offsets[startNorm + parsed.bodyStart + offset];
+    for (const row of parsed.rows) {
+      addBlock('table_row', { map: [0, 0] } as unknown as Token, { header: row.cells.every(cell => cell.header) }, { from: at(row.from), to: at(row.to) });
+      for (const cell of row.cells) {
+        addBlock('table_cell', { map: [0, 0] } as unknown as Token, {
+          header: cell.header, align: cell.align, cellAlign: null, rowspan: cell.rowspan, colspan: cell.colspan, vAlign: cell.vAlign,
+        }, { from: at(cell.innerFrom), to: at(cell.innerTo) });
+        const frame = stack.at(-1)!;
+        const content = htmlCellContent(raw.slice(parsed.bodyStart + cell.innerFrom, parsed.bodyStart + cell.innerTo), startNorm + parsed.bodyStart + cell.innerFrom);
+        const id = frame.attrs.id as string;
+        frame.nodes.push(...content.nodes);
+        for (const char of content.chars) chars.push({ ...char, block: id });
+        for (const atom of content.atoms) atoms.push({ ...atom, block: id });
+        finish();
+      }
+      finish();
+    }
+    finish();
+    return true;
+  }
+  function isHtmlTableBlock(token: Token): boolean {
+    if (token.type !== 'html_block') return false;
+    const raw = normalized.text.slice(lines[token.map![0]], lines[token.map![1]]).trim();
+    return /^<table\b/i.test(raw) && /<\/table\s*>$/i.test(raw)
+      && (raw.match(/<table\b/gi) ?? []).length === (raw.match(/<\/table\s*>/gi) ?? []).length;
+  }
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    if (token.type === 'table_open') { addBlock('table', token); table = { header: false, line: token.map![0], spans: [], index: 0 }; continue; }
+    if (token.type === 'table_open') {
+      addBlock('table', token);
+      pendingWidths = scanWidthComment(lines[token.map![1]]);
+      table = { header: false, line: token.map![0], spans: [], index: 0 };
+      continue;
+    }
     if (table) {
       if (token.type === 'thead_open') { table.header = true; continue; }
       if (token.type === 'tbody_open') { table.header = false; continue; }
@@ -663,7 +901,19 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
         continue;
       }
       if (token.type === 'th_close' || token.type === 'td_close' || token.type === 'tr_close') { finish(); continue; }
-      if (token.type === 'table_close') { finish(); table = null; continue; }
+      if (token.type === 'table_close') {
+        const frame = stack.at(-1)!;
+        const columns = frame.nodes[0]?.childCount ?? 0;
+        if (pendingWidths) {
+          // 数量与列数不符时保持源码不动，只标记失配并回退自动布局。
+          if (pendingWidths.widths && pendingWidths.widths.length === columns) frame.attrs.widths = pendingWidths.widths;
+          else frame.attrs.widthMismatch = true;
+          frame.range.to = normalized.offsets[pendingWidths.endNorm];
+          absorbedCommentStart = pendingWidths.startNorm;
+          pendingWidths = null;
+        }
+        finish(); table = null; continue;
+      }
       if (token.type === 'thead_close' || token.type === 'tbody_close') continue;
     }
     if (token.nesting === 1) {
@@ -817,7 +1067,13 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
           atoms.push({ from: inlineOffsets[range.from], to: inlineOffsets[range.to], pos: local++, block: frame.attrs.id as string, kind: 'html' });
         }
       }
-    } else if (['fence', 'code_block', 'html_block', 'hr'].includes(token.type)) {
+    } else if (token.type === 'html_block') {
+      // 已并入 GFM 表格块的列宽注释不再生成源码块。
+      if (absorbedCommentStart !== null && lines[token.map![0]] === absorbedCommentStart) { absorbedCommentStart = null; continue; }
+      if (isHtmlTableBlock(token) && addHtmlTableBlock(token)) continue;
+      const range = token.map!;
+      addBlock('opaque', token, { kind: 'html', raw: source.slice(normalized.offsets[lines[range[0]]], normalized.offsets[lines[range[1]]]), content: token.content, info: token.info }); finish();
+    } else if (['fence', 'code_block', 'hr'].includes(token.type)) {
       const range = token.map!;
       addBlock('opaque', token, { kind: token.type === 'fence' ? token.info.trim() === 'mermaid' ? 'mermaid' : 'code' : token.type === 'code_block' ? 'code' : token.type, raw: source.slice(normalized.offsets[lines[range[0]]], normalized.offsets[lines[range[1]]]), content: token.content, info: token.info }); finish();
     }
