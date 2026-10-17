@@ -1,7 +1,8 @@
 import { wrapCell } from './table-alignment';
 import type { Node as PMNode, Mark } from 'prosemirror-model';
 import type { Atom, Model, Range, Block } from './model';
-import { parse, semantics, schema, imageDimensions } from './model';
+import { parse, semantics, schema, imageDimensions, formatWidthList, normalizeWidths } from './model';
+import { sanitizeHtml } from './render/html';
 import { Transform } from 'prosemirror-transform';
 import { MarkdownSerializer, defaultMarkdownSerializer } from 'prosemirror-markdown';
 
@@ -40,6 +41,17 @@ export function renderedEdit(model: Model, expected: PMNode): ReturnType<typeof 
   let oldEnd = ends.a, newEnd = ends.b;
   const overlap = from - Math.min(oldEnd, newEnd);
   if (overlap > 0) { oldEnd += overlap; newEnd += overlap; }
+  // v0.2.5：HTML 格式表格内编辑不走单元格逐字回写，整表序列化后再校验结构。
+  const htmlTable = model.blocks.find(block => block.type === 'table' && block.node.attrs.format === 'html'
+    && from >= block.pos && oldEnd <= block.pos + block.node.nodeSize);
+  if (htmlTable) {
+    const nextTable = expected.nodeAt(htmlTable.pos);
+    if (nextTable?.type.name === 'table' && nextTable.attrs.id === htmlTable.node.attrs.id) {
+      const result = writeHtmlTableBlock(model, htmlTable, nextTable);
+      if (result) return result;
+    }
+    return renderedStructure(model, expected);
+  }
   const removed = model.chars.filter(c => c.pos >= from && c.pos < oldEnd);
   const inserted: { text: string; marks: readonly Mark[] }[] = [];
   const nodes: PMNode[] = [];
@@ -156,7 +168,7 @@ export function renderedStructure(model: Model, expected: PMNode): ReturnType<ty
   if (equal(semantics(canonicalNext.doc), semantics(expected))) return { source: canonicalSource, model: canonicalNext, edit: canonicalEdit };
   return validated(model, canonicalEdit, expected);
 }
-function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMarker = '-', orderedMarker = '.'): string {
+export function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMarker = '-', orderedMarker = '.'): string {
   const original = model.blocks.find(b => b.id === node.attrs.id && equal(semantics(b.node), semantics(node)));
   const originalRaw = original && model.source.slice(original.from, original.to);
   if (original?.parent === null && bulletMarker === '-' && (node.type.name !== 'ordered_list' || /^\s*\d+([.)])\s/.exec(originalRaw!)?.[1] === orderedMarker)) return originalRaw!.replace(/(?:\r\n|\r|\n)+$/, '').replace(/\r\n|\r/g, '\n');
@@ -184,16 +196,137 @@ function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMar
       }).join('\n');
     }
     case 'table': {
+      // v0.2.5：gfm/html 两种格式；html 表格重新生成规范源码（含 colgroup、跨度与对齐）。
+      if (node.attrs.format === 'html') return serializeHtmlTable(node);
       const rows = Array.from({ length: node.childCount }, (_, i) => node.child(i));
       const row = (r: PMNode) => '| ' + Array.from({ length: r.childCount }, (_, i) => wrapCell(serializeInline(r.child(i), [], canonical).replace(/(?<!\\)\|/g, '\\|').replace(/  \n/g, '<br>'), r.child(i).attrs.cellAlign)).join(' | ') + ' |';
       const aligns = Array.from({ length: rows[0].childCount }, (_, i) => ({ left: ':---', right: '---:', center: ':---:' }[String(rows[0].child(i).attrs.align)] ?? '---'));
-      return [row(rows[0]), '| ' + aligns.join(' | ') + ' |', ...rows.slice(1).map(row)].join('\n');
+      const body = [row(rows[0]), '| ' + aligns.join(' | ') + ' |', ...rows.slice(1).map(row)].join('\n');
+      // 列宽注释也是表格块源码的一部分；整表回写时保留/更新，失配时原样保留注释避免丢源码。
+      const widths = Array.isArray(node.attrs.widths) && (node.attrs.widths as number[]).length ? node.attrs.widths as number[] : null;
+      if (widths) return body + '\n<!-- mdre:table-widths: ' + formatWidthList(widths).join(',') + ' -->';
+      if (node.attrs.widthMismatch) {
+        const original = model.blocks.find(block => block.id === node.attrs.id && block.type === 'table');
+        const comment = original ? /<!--[ \t]*mdre:table-widths[^>]*-->/.exec(model.source.slice(original.from, original.to))?.[0] : undefined;
+        if (comment) return body + '\n' + comment;
+      }
+      return body;
     }
     default: throw new Error(`未支持的容器：${node.type.name}`);
   }
 }
 
-function serializeInline(node: PMNode, skip: readonly Mark[] = [], canonical = false): string {
+// v0.2.5：HTML 表格的规范源码。单元格内容按行内 Markdown 解析，写回时转成等价 HTML，
+// 文本中的 Markdown 特殊字符用字符实体编码，保证再次解析不会改变文字。
+export function serializeHtmlTable(node: PMNode): string {
+  // 存储值原样写回（渲染时再归一化），保证列宽在多次编辑间不被反复缩放。
+  const storedWidths = Array.isArray(node.attrs.widths) && (node.attrs.widths as number[]).length ? node.attrs.widths as number[] : null;
+  const lines: string[] = ['<table>'];
+  if (storedWidths) lines.push('<colgroup>' + formatWidthList(storedWidths).map(width => `<col style="width:${width}">`).join('') + '</colgroup>');
+  for (let rowIndex = 0; rowIndex < node.childCount; rowIndex++) {
+    const row = node.child(rowIndex);
+    const cells: string[] = [];
+    for (let cellIndex = 0; cellIndex < row.childCount; cellIndex++) cells.push(serializeHtmlCell(row.child(cellIndex)));
+    lines.push('<tr>' + cells.join('') + '</tr>');
+  }
+  lines.push('</table>');
+  return lines.join('\n');
+}
+const htmlEscapeAttribute = (text: string): string => text.replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]!);
+const htmlMarkOpeners: Record<string, (mark: Mark) => string> = {
+  strong: () => '<strong>', em: () => '<em>', strike: () => '<s>', underline: () => '<u>', highlight: () => '<mark>',
+  code: () => '<code>', sup: () => '<sup>', sub: () => '<sub>',
+  link: mark => `<a href="${htmlEscapeAttribute(String(mark.attrs.href))}"${mark.attrs.title ? ` title="${htmlEscapeAttribute(String(mark.attrs.title))}"` : ''}>`,
+  color: mark => `<span style="color:${htmlEscapeAttribute(String(mark.attrs.color))}">`,
+  bg: mark => `<mark class="bg" style="background-color:${htmlEscapeAttribute(String(mark.attrs.bg))}">`,
+  size: mark => `<span style="font-size:${htmlEscapeAttribute(String(mark.attrs.size))}">`,
+  html: mark => sanitizeHtml(String(mark.attrs.open)),
+};
+const htmlMarkClosers: Record<string, (mark: Mark) => string> = {
+  strong: () => '</strong>', em: () => '</em>', strike: () => '</s>', underline: () => '</u>', highlight: () => '</mark>',
+  code: () => '</code>', sup: () => '</sup>', sub: () => '</sub>', link: () => '</a>',
+  color: () => '</span>', bg: () => '</mark>', size: () => '</span>', html: mark => sanitizeHtml(String(mark.attrs.close)),
+};
+const htmlMarkOrder: Record<string, number> = { html: -1, size: 0, link: 1, color: 2, bg: 3, highlight: 4, em: 5, strong: 6, strike: 7, underline: 8, sup: 9, sub: 10, code: 11 };
+// HTML 单元格文本：保留 Unicode 原字符，Markdown 特殊字符转字符实体，防止重新解析时变成格式。
+const htmlCellText = (text: string): string => {
+  let output = '';
+  for (const char of text) {
+    if (char === '\n') { output += '<br>'; continue; }
+    output += /[&<>"'\\`*_[\]{}()#!|~=$^]/.test(char) ? `&#${char.codePointAt(0)};` : char;
+  }
+  return output;
+};
+export function htmlInlineContent(node: PMNode): string {
+  const ordered = (marks: readonly Mark[]) => [...marks].sort((a, b) => (htmlMarkOrder[a.type.name] ?? 99) - (htmlMarkOrder[b.type.name] ?? 99));
+  let output = '', active: Mark[] = [];
+  node.forEach(child => {
+    const marks = ordered(child.marks);
+    let common = 0;
+    while (common < active.length && common < marks.length && active[common].eq(marks[common])) common++;
+    for (let index = active.length - 1; index >= common; index--) output += htmlMarkClosers[active[index].type.name]?.(active[index]) ?? '';
+    for (let index = common; index < marks.length; index++) output += htmlMarkOpeners[marks[index].type.name]?.(marks[index]) ?? '';
+    active = marks;
+    if (child.isText) output += htmlCellText(child.text ?? '');
+    else if (child.type.name === 'hard_break') output += '<br>';
+    else if (child.type.name === 'image') output += `<img src="${htmlEscapeAttribute(String(child.attrs.src))}" alt="${htmlEscapeAttribute(String(child.attrs.alt ?? ''))}"${child.attrs.title ? ` title="${htmlEscapeAttribute(String(child.attrs.title))}"` : ''}>`;
+    else if (child.type.name === 'math_inline') {
+      // 公式占位：导出时按 data-latex 重建 KaTeX；内层再写一份 $...$ 让预览重新解析为公式节点。
+      const latex = String(child.attrs.latex ?? '');
+      const inline = /[<>&\n$]/.test(latex) ? '' : `$${latex}$`;
+      output += `<span class="math-inline" data-latex="${htmlEscapeAttribute(latex)}">${inline}</span>`;
+    }
+    else if (child.type.name === 'footnote_ref') output += htmlCellText(`[^${String(child.attrs.label ?? '')}]`);
+    else if (child.type.name === 'raw_inline') output += sanitizeHtml(String(child.attrs.raw));
+  });
+  for (let index = active.length - 1; index >= 0; index--) output += htmlMarkClosers[active[index].type.name]?.(active[index]) ?? '';
+  return output;
+}
+function serializeHtmlCell(cell: PMNode): string {
+  const tag = cell.attrs.header ? 'th' : 'td';
+  const attributes: string[] = [];
+  const rowspan = Math.max(1, Number(cell.attrs.rowspan ?? 1)), colspan = Math.max(1, Number(cell.attrs.colspan ?? 1));
+  if (colspan > 1) attributes.push(` colspan="${colspan}"`);
+  if (rowspan > 1) attributes.push(` rowspan="${rowspan}"`);
+  const styles: string[] = [];
+  const align = cell.attrs.cellAlign || cell.attrs.align;
+  if (align) styles.push(`text-align:${align}`);
+  if (cell.attrs.vAlign) styles.push(`vertical-align:${cell.attrs.vAlign}`);
+  if (styles.length) attributes.push(` style="${styles.join(';')}"`);
+  return `<${tag}${attributes.join('')}>${htmlInlineContent(cell)}</${tag}>`;
+}
+// HTML 表格单元格编辑的整表回写：序列化后重新解析，按结构事实校验（格式/列宽/跨度/对齐/文字）。
+export function writeHtmlTableBlock(model: Model, table: Block, expected: PMNode): { source: string; model: Model; edit: Patch } {
+  const newline = model.source.includes('\r\n') ? '\r\n' : '\n';
+  let insert = serializeBlock(expected, model).replace(/\n/g, newline);
+  if (!insert.endsWith(newline)) insert += newline;
+  const edit: Patch = { from: table.from, to: table.to, insert };
+  const source = patch(model.source, edit), next = parse(source, model, edit);
+  const parsed = next.doc.nodeAt(table.pos);
+  assertHtmlTable(expected, parsed);
+  return { source, model: next, edit };
+}
+function assertHtmlTable(expected: PMNode, actual: PMNode | null): void {
+  const fail = (): never => { throw new Error('表格内容无法可靠写回 HTML，请使用源码栏调整。'); };
+  if (!actual || actual.type.name !== 'table' || actual.attrs.format !== 'html') fail();
+  const same = JSON.stringify(normalizeWidths(actual!.attrs.widths as number[] | null)) === JSON.stringify(normalizeWidths(expected.attrs.widths as number[] | null))
+    && !!actual!.attrs.widthMismatch === !!expected.attrs.widthMismatch && actual!.childCount === expected.childCount;
+  if (!same) fail();
+  for (let rowIndex = 0; rowIndex < expected.childCount; rowIndex++) {
+    const expectedRow = expected.child(rowIndex), actualRow = actual!.child(rowIndex);
+    if (actualRow.childCount !== expectedRow.childCount) fail();
+    for (let cellIndex = 0; cellIndex < expectedRow.childCount; cellIndex++) {
+      const a = expectedRow.child(cellIndex), b = actualRow.child(cellIndex);
+      if (!!a.attrs.header !== !!b.attrs.header || Number(a.attrs.rowspan ?? 1) !== Number(b.attrs.rowspan ?? 1)
+        || Number(a.attrs.colspan ?? 1) !== Number(b.attrs.colspan ?? 1)
+        || String(a.attrs.cellAlign || a.attrs.align || '') !== String(b.attrs.cellAlign || b.attrs.align || '')
+        || String(a.attrs.vAlign || '') !== String(b.attrs.vAlign || '')
+        || a.textContent !== b.textContent) fail();
+    }
+  }
+}
+
+export function serializeInline(node: PMNode, skip: readonly Mark[] = [], canonical = false): string {
   const order: Record<string, number> = { html: -1, size: 0, link: 1, color: 2, bg: 3, highlight: 4, em: 5, strong: 6, strike: 7, underline: 8, sup: 9, sub: 10, code: 11 };
   const children: PMNode[] = [];
   node.forEach(child => {

@@ -1,7 +1,7 @@
 import { decodeHTML } from 'entities';
 // S-6：渲染输出的单一白名单出口，解析器、预览和导出共用。
 const allowedTags = new Set(['p', 'br', 'hr', 'strong', 'em', 's', 'del', 'code', 'pre', 'mark', 'span', 'div', 'a', 'img', 'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'sup', 'sub', 'nav', 'figure', 'figcaption', 'section', 'article', 'math', 'semantics', 'annotation', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'msqrt', 'mtext', 'mspace', 'mover', 'munder', 'mtable', 'mtr', 'mtd']);
-const allowedAttrs = new Set(['href', 'title', 'alt', 'src', 'width', 'height', 'class', 'style', 'id', 'colspan', 'rowspan', 'start', 'align', 'encoding', 'mathvariant']);
+const allowedAttrs = new Set(['href', 'title', 'alt', 'src', 'width', 'height', 'class', 'style', 'id', 'colspan', 'rowspan', 'start', 'align', 'valign', 'encoding', 'mathvariant']);
 const voidTags = new Set(['br', 'hr', 'img']);
 for (const tag of ['u', 'b', 'i', 'small', 'abbr', 'cite', 'kbd', 'samp', 'var', 'details', 'summary', 'dl', 'dt', 'dd', 'address', 'caption', 'colgroup', 'col', 'aside', 'header', 'footer']) allowedTags.add(tag);
 voidTags.add('col');

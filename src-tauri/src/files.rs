@@ -332,7 +332,7 @@ pub fn read_document_image(window: tauri::WebviewWindow, path: String, relative:
     crate::persistence::read_image(window, parent, name)
 }
 fn dialog(filter_index: u32, title: &str, suggested: Option<&str>, save: bool, extension: &str, owner: Option<windows::Win32::Foundation::HWND>) -> Option<String> {
-    let filter_text = match extension { "image" => "图片\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg\0所有文件\0*.*\0\0", "html" => "HTML\0*.html;*.htm\0所有文件\0*.*\0\0", "pdf" => "PDF\0*.pdf\0所有文件\0*.*\0\0", _ => "Markdown\0*.md;*.markdown;*.txt\0所有文件\0*.*\0\0" };
+    let filter_text = match extension { "image" => "图片\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg\0所有文件\0*.*\0\0", "html" => "HTML\0*.html;*.htm\0所有文件\0*.*\0\0", "pdf" => "PDF\0*.pdf\0所有文件\0*.*\0\0", "zip" => "Zip 压缩包\0*.zip\0所有文件\0*.*\0\0", _ => "Markdown\0*.md;*.markdown;*.txt\0所有文件\0*.*\0\0" };
     let filter: Vec<u16> = filter_text.encode_utf16().collect();
     let mut name: Vec<u16> = suggested.unwrap_or("").encode_utf16().chain(Some(0)).collect();
     name.resize(1024, 0);
@@ -413,9 +413,15 @@ pub fn pick_file(window: tauri::WebviewWindow, save: bool, suggested: Option<Str
 }
 #[tauri::command]
 pub fn pick_export(window: tauri::WebviewWindow, format: String, suggested: Option<String>) -> Result<Option<String>, String> {
-    if format != "html" && format != "pdf" { return Err("导出格式无效".into()); }
+    let title = match format.as_str() {
+        "html" => "导出 HTML",
+        "pdf" => "导出 PDF",
+        // 0.2.5：可分享副本保存为 zip。
+        "zip" => "导出可分享副本（Zip）",
+        _ => return Err("导出格式无效".into()),
+    };
     let owner = window.hwnd().ok().map(|handle| windows::Win32::Foundation::HWND(handle.0 as _));
-    Ok(dialog(1, if format == "html" { "导出 HTML" } else { "导出 PDF" }, suggested.as_deref(), true, &format, owner))
+    Ok(dialog(1, title, suggested.as_deref(), true, &format, owner))
 }
 #[tauri::command]
 pub fn write_export(path: String, html: String) -> Result<u64, String> {
@@ -423,6 +429,46 @@ pub fn write_export(path: String, html: String) -> Result<u64, String> {
     if !target.is_absolute() || !matches!(target.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase()).as_deref(), Some("html" | "htm")) { return Err("需要绝对 .html 或 .htm 路径".into()); }
     crate::persistence::atomic_write(&target, html.as_bytes())?;
     Ok(html.len() as u64)
+}
+// 0.2.5：可分享副本由前端按字节生成 zip，这里只做 base64 解码、路径/大小校验与原子落盘。
+fn decode_base64(text: &str) -> Result<Vec<u8>, String> {
+    let mut output = Vec::with_capacity(text.len() / 4 * 3);
+    let mut buffer = 0u32;
+    let mut bits = 0u32;
+    for byte in text.bytes() {
+        let value = match byte {
+            b'=' | b'\n' | b'\r' | b' ' | b'\t' => continue,
+            b'A'..=b'Z' => u32::from(byte - b'A'),
+            b'a'..=b'z' => u32::from(byte - b'a') + 26,
+            b'0'..=b'9' => u32::from(byte - b'0') + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return Err("导出数据不是合法 base64".into()),
+        };
+        buffer = (buffer << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            output.push((buffer >> bits) as u8);
+        }
+    }
+    if output.is_empty() { return Err("导出数据为空".into()); }
+    Ok(output)
+}
+#[tauri::command]
+pub fn write_export_binary(path: String, base64: String) -> Result<u64, String> {
+    let target = PathBuf::from(&path);
+    if !target.is_absolute() { return Err("需要绝对 .zip 输出路径".into()); }
+    if !matches!(target.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase()).as_deref(), Some("zip")) { return Err("需要绝对 .zip 输出路径".into()); }
+    if base64.is_empty() { return Err("导出数据为空".into()); }
+    let bytes = decode_base64(&base64)?;
+    // 单张图片上限 32 MB，文档图片数量有限；512 MB 足以覆盖正常副本并阻止异常写入。
+    if bytes.len() > 512 * 1024 * 1024 { return Err("可分享副本超过 512 MB，未写入".into()); }
+    if !bytes.starts_with(b"PK\x03\x04") { return Err("导出数据不是 ZIP 文件".into()); }
+    crate::persistence::atomic_write(&target, &bytes)?;
+    let written = std::fs::metadata(&target).map_err(|error| error.to_string())?;
+    if written.len() != bytes.len() as u64 { return Err("可分享副本写入校验失败".into()); }
+    Ok(written.len())
 }
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {
@@ -569,5 +615,3 @@ mod tests {
         assert_ne!(fingerprint_bytes(b"abc"), fingerprint_bytes(b"abd"));
     }
 }
-
-
