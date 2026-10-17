@@ -138,3 +138,18 @@ export function setCellAlignment(model: Model, cellId: string, align: CellAlignm
   const expected = new Transform(model.doc).setNodeMarkup(cell.pos, undefined, { ...cell.node.attrs, cellAlign: align }).doc;
   return validated(model, edit, expected).edit;
 }
+
+// 一次事务修改多个单元格，未选择的格子逐字保留，撤销也只需一次。
+export function setCellsAlignment(model: Model, cellIds: string[], align: CellAlignment): Patch {
+  const cells = model.blocks.filter(block => block.type === 'table_cell' && cellIds.includes(block.id)).sort((a,b) => a.from - b.from);
+  if (!cells.length) throw new Error('请先选择表格单元格。');
+  const from = cells[0].from, to = cells.at(-1)!.to;
+  let insert = model.source.slice(from, to);
+  const transform = new Transform(model.doc);
+  for (const cell of [...cells].reverse()) {
+    const text = alignedCell(model.source.slice(cell.from, cell.to)).text;
+    insert = insert.slice(0, cell.from - from) + wrapCell(text, align) + (cell.from === cell.to ? ' ' : '') + insert.slice(cell.to - from);
+    transform.setNodeMarkup(cell.pos, undefined, { ...cell.node.attrs, cellAlign: align });
+  }
+  return validated(model, { from, to, insert }, transform.doc).edit;
+}

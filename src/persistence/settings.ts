@@ -4,7 +4,12 @@ export type LastSession = { folder: string | null; files: string[]; active_file:
 
 // S-34/S-42/S-43/S-45/S-47：配置扩展为「主题 + 启动模式 + 分栏比例 + 字体 + 最近打开 + 备份份数 + 快捷键」。
 // 键名与 Rust `Settings` 的 serde 字段保持一致（蛇形），避免跨端读写错位。
+export type ViewState = { name: string; paper: boolean; source: boolean; sidebar: boolean; toolbar: boolean };
 export type Settings = {
+  font_unit: 'px' | 'em';
+  sidebar_visible: boolean;
+  toolbar_visible: boolean;
+  last_view: ViewState | null;
   theme: 'system' | 'light' | 'dark';
   code_theme: 'light' | 'dark';
   default_mode: 'edit' | 'read';
@@ -28,6 +33,7 @@ export type Settings = {
   shortcuts: Record<string, string>;
 };
 export const defaults: Settings = {
+  font_unit: 'px', sidebar_visible: true, toolbar_visible: true, last_view: null,
   theme: 'system', code_theme: 'light', default_mode: 'edit', show_source: true, split: 50,
   paper_enabled: false, paper_layout: 'continuous', paper_align: 'justify', image_layout: 'fit', sidebar_width: 216, file_list_ratio: 60, outline_collapsed: false,
   font_body: '', font_mono: '', font_size: 15, line_height: 1.85,
@@ -52,6 +58,10 @@ export const shortcutCommands: { id: string; label: string; fallback: string }[]
   { id: 'export-html', label: '导出 HTML', fallback: '' },
 ];
 const validators: Record<keyof Settings, (value: unknown) => boolean> = {
+  font_unit: value => value === 'px' || value === 'em',
+  sidebar_visible: value => typeof value === 'boolean',
+  toolbar_visible: value => typeof value === 'boolean',
+  last_view: value => value === null || !!value && typeof value === 'object' && typeof (value as ViewState).name === 'string' && ['paper','source','sidebar','toolbar'].every(key => typeof (value as Record<string, unknown>)[key] === 'boolean'),
   theme: value => ['system', 'light', 'dark'].includes(value as string),
   code_theme: value => ['light', 'dark'].includes(value as string),
   default_mode: value => ['edit', 'read'].includes(value as string),
@@ -66,7 +76,7 @@ const validators: Record<keyof Settings, (value: unknown) => boolean> = {
   split: value => typeof value === 'number' && value >= 20 && value <= 80,
   font_body: value => typeof value === 'string' && value.length <= 200,
   font_mono: value => typeof value === 'string' && value.length <= 200,
-  font_size: value => typeof value === 'number' && value >= 10 && value <= 32,
+  font_size: value => typeof value === 'number' && Number.isFinite(value) && value >= 0.5 && value <= 32,
   line_height: value => typeof value === 'number' && value >= 1 && value <= 3,
   recent: value => Array.isArray(value) && value.every(item => typeof item === 'string'),
   recent_folders: value => Array.isArray(value) && value.every(item => typeof item === 'string'),
@@ -92,6 +102,8 @@ export function sanitize(raw: Partial<Record<keyof Settings, unknown>>): Setting
     else if (key === 'shortcuts') next.shortcuts = { ...(value as Record<string, string>) };
     else Object.assign(next, { [key]: value });
   }
+  const min = next.font_unit === 'px' ? 8 : 0.5, max = next.font_unit === 'px' ? 32 : 2;
+  if (next.font_size < min || next.font_size > max) next.font_size = next.font_unit === 'px' ? 15 : 15 / 16;
   return next;
 }
 let current: Settings = { ...defaults, recent: [], shortcuts: {} };

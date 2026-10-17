@@ -1,3 +1,6 @@
+import { setupTableSelection } from './ui/table-selection';
+import { setupViewPresets } from './ui/view-presets';
+import { fontSizes } from './ui/font-size';
 import { commitSymbolComposition } from './ui/composition';
 import './style.css';
 import { EditorState as CMState, Compartment } from '@codemirror/state';
@@ -22,7 +25,7 @@ import { formulaTarget, formulaEdit, mathUnsupported, type FormulaTarget } from 
 import { imagePaths, imagePathsFromText, imageFileUri } from './image-path';
 import { imageExtension, imageMarkdown, resolveImage, saveImage, savedImageSource } from './assets';
 import { convertBlock, moveBlock, deleteBlock, indentListItem, nestQuote, withFollowingParagraph, type BlockKind } from './blocks';
-import { insertTable, insertRow, removeRow, insertColumn, removeColumn, setTableCell, setCellAlignment } from './tables';
+import { insertTable, insertRow, removeRow, insertColumn, removeColumn, setTableCell, setCellAlignment, setCellsAlignment } from './tables';
 import { projectSelection, mapRenderRange, viewOffset } from './mapping';
 import { DocumentSession, Workspace, type Draft, type Selection, type Ticket } from './session';
 import { staticHtml, safeUrl, exportAppearance } from './export';
@@ -34,7 +37,7 @@ import { groupToolbar } from './ui/toolbar';
 import { setupFiles } from './ui/files';
 import { icon, type Icon } from './ui/icons';
 import { setupMenus, setupTooltips, setupWindowControls } from './ui/chrome';
-import { captureView, restoreView, divider, applyFocusMode } from './ui/layout';
+import { captureView, restoreView, divider } from './ui/layout';
 import { ScrollSync } from './ui/scroll';
 import { setupDefaultMode, setupTheme } from './ui/theme';
 import { searchPlugin, find, replaceAll, replaceCurrent } from './ui/search';
@@ -69,7 +72,7 @@ const closestOf = <T extends Element = Element>(target: EventTarget | null, sele
 const settingsRead = await loadSettings().catch(() => null);
 const paper = setupPaper($('render'), $('paper-toggle') as HTMLButtonElement, $('paper-zoom'), reason => error(reason));
 const sidebar = setupSidebar(reason => error(reason));
-let sourceVisible = settings().show_source, sourceDefault = sourceVisible;
+let sourceVisible = settings().last_view?.source ?? settings().show_source, sourceDefault = settings().show_source;
 const workspace = new Workspace();
 let restoringWorkspace = true;
 const workspaceRestoreErrors: string[] = [];
@@ -130,7 +133,7 @@ function status() {
   const doc = workspace.active;
   const available = !!doc && !doc.welcome;
   document.querySelectorAll<HTMLButtonElement>('button[data-command], #format-toolbar button, .view-tools button, #mode, #save, #save-as, #close-tab, #html, #pdf-open, #backup').forEach(button => { button.disabled = !available; });
-  document.querySelectorAll<HTMLButtonElement>('#outline-toggle, [data-command="outline-toggle"]').forEach(button => button.disabled = false);
+  document.querySelectorAll<HTMLButtonElement>('#outline-toggle, [data-command="outline-toggle"], [data-command^="view-"], [data-command="toolbar-toggle"]').forEach(button => button.disabled = false);
   $<HTMLButtonElement>('close-tab').disabled = !doc;
   if (!available) { syncTabs(); document.title = 'MDRE'; $('window-title').textContent = 'MDRE'; $('status-text').textContent = '欢迎使用 MDRE'; for (const id of ['status-counts', 'status-encoding', 'status-position', 'status-path', 'recovery-status']) $(id).textContent = ''; $('render-timing').hidden = true; return; }
   const { chars, words } = textCounts(doc);
@@ -278,6 +281,7 @@ function insertHardBreak(state: EditorState, dispatch?: (transaction: Transactio
 }
 const plugins = [keymap({
   'Mod-z': () => { action(() => travel(false)); return true; }, 'Mod-y': () => { action(() => travel(true)); return true; }, 'Mod-Shift-z': () => { action(() => travel(true)); return true; },
+  Backspace: (state, dispatch) => { if (state.selection.empty && !state.selection.$from.parent.content.size && state.selection.$from.depth > 1 && state.selection.$from.node(-1).type === schema.nodes.list_item) return liftListItem(schema.nodes.list_item)(state, dispatch); return false; },
   Enter: () => { action(enterActive); return true; },
   'Shift-Enter': insertHardBreak,
   'Mod-b': () => { action(() => markActive(schema.marks.strong)); return true; },
@@ -425,7 +429,7 @@ const render = new EditorView($('render'), {
       dom.append(contentDOM); return { dom, contentDOM };
     },
     opaque(node, view, getPos) {
-      if (node.attrs.kind === 'hr') { const dom = document.createElement('hr'); dom.dataset.block = node.attrs.id; return { dom }; }
+      if (node.attrs.kind === 'hr') { const dom = document.createElement('hr'); dom.dataset.block = node.attrs.id; dom.onmousedown = event => { if (event.button !== 0) return; event.preventDefault(); const pos = getPos(); if (typeof pos === 'number') { render.dispatch(render.state.tr.setSelection(NodeSelection.create(render.state.doc, pos))); render.focus(); } }; return { dom }; }
       if (node.attrs.kind !== 'mermaid') return inlineEditor(node, view, getPos, inlineOptions);
       const doc = workspace.active;
       return diagramView(node, { readOnly: () => doc.readOnly, edit: () => action(() => { requirePreview(); openDraft(node.attrs.id); }), remove: () => { const pos = getPos(); if (typeof pos === 'number') inlineOptions.remove(pos); }, select: () => { const pos = getPos(); if (typeof pos === 'number') { render.dispatch(render.state.tr.setSelection(NodeSelection.create(render.state.doc, pos))); render.focus(); } } }, ms => { if (workspace.active === doc && !doc.welcome && !doc.modelStale && doc.renderRevision === doc.revision) { doc.renderMs += ms; renderTiming(doc); } });
@@ -460,6 +464,8 @@ const render = new EditorView($('render'), {
   },
 });
 
+const tableSelection = setupTableSelection(render, () => workspace.active.model, () => !!workspace.active && !workspace.active.readOnly);
+const selectedTableCells = (cell: HTMLElement) => tableSelection.selected(cell);
 function mirrorSource() {
   mirror = true;
   const doc = workspace.active, normalized = normalize(doc.source);
@@ -1397,17 +1403,20 @@ async function exportHtml(explicitPath?: string, doc = workspace.active) {
   if (path) { await invoke('write_export', { path, html }); $('status-text').textContent = `已导出 HTML · r${revision} · ${path}`; }
   else download(suggested, html, 'text/html;charset=utf-8');
 }
-async function exportPdf(explicitPath?: string, doc = workspace.active) {
+async function exportPdf(explicitPath?: string, doc = workspace.active, layout?: 'paged' | 'long') {
   if (!doc) return;
   flushInline(doc);
   if (!isTauri()) throw new Error('原生 PDF 请在 Tauri 桌面应用中执行。');
   if (doc.composition) throw new Error('请先提交组合输入再导出。');
   const ticket = doc.ticket('export'), sourceText = doc.source, appearance = exportAppearance(doc.id,doc.model,render.dom);
+  const pageMode = layout ?? (explicitPath ? 'paged' : await choose<'paged' | 'long' | 'cancel'>('pdf-dialog', [['pdf', 'paged'], ['pdf-cancel', 'cancel']], 'cancel'));
+  if (pageMode === 'cancel') return;
+  const selectedLayout = layout ?? (explicitPath ? 'paged' : $<HTMLSelectElement>('pdf-layout').value as 'paged' | 'long');
   const path = explicitPath ?? await invoke<string | null>('pick_export', { format: 'pdf', suggested: documentTitle(doc) + '.pdf' });
   if (!path) return;
   $('status-text').textContent = '正在准备不可变快照与图片/字体/Mermaid…';
   const html = await staticHtml(sourceText, src => resolveImage(doc, src), appearance);
-  const result = await invoke<{ path: string; bytes: number; engine: string }>('export_pdf', { html, path });
+  const result = await invoke<{ path: string; bytes: number; engine: string }>('export_pdf', { html, path, layout: selectedLayout });
   $('status-text').textContent = `原生回调成功 · ${ticket.docId} r${ticket.revision} · ${result.engine} · ${result.path} · ${result.bytes} bytes`;
   return result;
 }
@@ -1454,7 +1463,9 @@ const handlers: Record<string, () => void | Promise<void>> = {
   'close-tab': async () => { await closeTab(workspace.activeId); },
   copy: async () => { await navigator.clipboard.writeText(workspace.active.source); $('status-text').textContent = '已复制完整源码'; },
   // S-35：专注模式只切换界面可见性。
-  'focus-toggle': () => applyFocusMode(!document.body.classList.contains('focus-mode')),
+  'focus-toggle': () => views.focus(),
+  'toolbar-toggle': () => { document.body.classList.toggle('toolbar-hidden'); },
+  'view-full': () => views.select('全量编辑'), 'view-focus': () => views.select('专注模式'), 'view-immersive': () => views.select('沉浸专注'), 'view-a4': () => views.select('A4视图'),
   // S-42：最近打开列表展开（菜单项本身也是可点元素）。
   'recent-menu': () => { const list = $('recent-list'); list.hidden = !list.hidden; $('recent-folder-list').hidden = true; },
   'recent-folder-menu': () => { const list = $('recent-folder-list'); list.hidden = !list.hidden; $('recent-list').hidden = true; },
@@ -1462,9 +1473,9 @@ const handlers: Record<string, () => void | Promise<void>> = {
   'goto-line': () => openGotoDialog(),
   html: exportHtml,
   'pdf-open': async () => { await exportPdf(); },
-  pdf: async () => { await exportPdf(); closeFloating($('pdf-dialog')); },
+  pdf: async () => {},
   open: () => { if (isTauri()) return openViaPicker(); $<HTMLInputElement>('file').click(); },
-  search: () => updateFind(true),
+  search: () => updateFind(1), 'search-prev': () => updateFind(-1),
   'replace-one': () => {
     if (workspace.active.readOnly) throw new Error('只读模式不能替换。');
     if (!replaceCurrent(render, $<HTMLInputElement>('replace').value)) throw new Error('没有可替换的匹配。');
@@ -1608,8 +1619,9 @@ const colorControls = {
   bg: setupColorPicker($('highlight-picker'), { apply: value => markActive(schema.marks.bg, undefined, value), dropdown: open => setDropdown($('highlight-picker'), open), run: action }),
 };
 $('font-size-menu').onclick = () => setDropdown($('font-size-dropdown'), $('font-size-dropdown').querySelector<HTMLElement>('.dropdown-popup')!.hidden);
-$('font-size-dropdown').querySelectorAll<HTMLButtonElement>('[data-size]').forEach(button => {
-  button.onclick = () => action(() => { markActive(schema.marks.size, { size: button.dataset.size! }); setDropdown($('font-size-dropdown'), false); });
+$('font-size-dropdown').addEventListener('click', event => {
+  const button = (event.target as Element).closest<HTMLElement>('[data-size]');
+  if (button) action(() => { markActive(schema.marks.size, { size: button.dataset.size! }); setDropdown($('font-size-dropdown'), false); });
 });
 document.addEventListener('pointerdown', event => {
   for (const id of ['color-picker', 'highlight-picker']) if (!closestOf(event.target, `#${id}`)) setDropdown($(id), false);
@@ -1756,7 +1768,7 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
       item('insert-mermaid', 'Mermaid 图', () => insertSpecial('mermaid'), false, 'split'),
       item('insert-paragraph', '下方新增段落', () => insertFollowingParagraph(), false, 'arrowDown'),
     ] },
-    { id: 'mark-color', label: '文字', icon: 'color', disabled: !writable || !!control || (origin === 'source' && !selected), children: [
+    { id: 'mark-color', label: '文字颜色', icon: 'color', disabled: !writable || !!control || (origin === 'source' && !selected), children: [
       item('apply-color', '应用预选文字颜色', () => markActive(schema.marks.color, undefined, colorControls.color.value()), false, colorControls.color.value() as Icon),
       { id: 'choose-color', label: '选择文字颜色', colorPicker: { value: colorControls.color.value(), change: value => run(() => colorControls.color.update(value))() } },
       { id: 'sep-color-presets', label: '', separator: true },
@@ -1770,8 +1782,9 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
       ...[['#fff3b0', '黄色'], ['#cfe8ff', '蓝色'], ['#d9f2e0', '绿色']].map(([bg, label]) => item(`bg-${bg}`, label, () => { colorControls.bg.update(bg); markActive(schema.marks.bg, undefined, bg); }, false, bg as Icon)),
       { id: 'sep-clear-highlight', label: '', separator: true }, item('clear-highlight', '清除高亮', () => markActive(schema.marks.bg, undefined, null), false, 'highlight'),
     ] },
-    { id: 'mark-size', label: '字号', icon: 'fontSize', disabled: !writable || !!control || (origin === 'source' && !selected), children: ['0.85em', '1.25em', '1.5em'].map(size => item(`size-${size}`, size, () => markActive(schema.marks.size, { size }), false, 'fontSize')) },
+    { id: 'mark-size', label: '字号', icon: 'fontSize', disabled: !writable || !!control || (origin === 'source' && !selected), children: fontSizes(settings().font_unit).map(size => item(`size-${size}`, size, () => markActive(schema.marks.size, { size }), false, 'fontSize')) },
   ];
+  items.push({ id: 'headings', label: '标题', icon: 'heading', disabled: !writable || !!control, children: Array.from({ length: 7 }, (_, level) => item('heading-' + level, level ? '标题 ' + level : '正文', () => headingActive(level), false, 'heading')) });
   const cell = (event.target as Element).closest<HTMLElement>('[data-cell]');
   if (cell) {
     const id = cell.dataset.cell!;
@@ -1781,8 +1794,9 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
     const inherited = /center/.test(style.textAlign) ? 'center' : /right/.test(style.textAlign) || (style.textAlign === 'start' && style.direction === 'rtl') || (style.textAlign === 'end' && style.direction !== 'rtl') ? 'right' : 'left';
     const alignment = block.node.attrs.cellAlign || block.node.attrs.align || inherited;
     const children: ContextItem[] = (['left', 'center', 'right'] as const).map((align, index) => ({
-      ...item(`align-${align}`, ['左对齐', '居中', '右对齐'][index], () => structural(setCellAlignment(doc.model, id, align), undefined, 'render'), !writable), checked: alignment === align,
+      ...item(`align-${align}`, ['左对齐', '居中', '右对齐'][index], () => structural(setCellsAlignment(doc.model, selectedTableCells(cell), align), undefined, 'render'), !writable), checked: alignment === align,
     }));
+    children.push(item('table-select-all', '全选表格', () => tableSelection.selectAll(cell), false, 'selectAll'));
     children.push({ id: 'sep-align', label: '', separator: true });
     children.push(...[
       ['row-above', '上方插入行', 'up', () => insertRow(doc.model, id, 0)], ['row-below', '下方插入行', 'down', () => insertRow(doc.model, id, 1)], ['row-remove', '删除行', 'trash', () => removeRow(doc.model, id)],
@@ -1809,7 +1823,10 @@ function openEditorContext(event: MouseEvent, origin: 'source' | 'render') {
     }
     items.push({ id: 'block-operations', label: '块操作', icon: 'swap', children });
   }
-  editorContext.open(items, event.clientX, event.clientY);
+  if (!items.some(item => item.id === 'table-operations')) items.push({ id: 'table-operations', label: '表格', icon: 'table', disabled: true });
+  const order = ['format', 'mark-color', 'headings', 'mark-bg', 'mark-size', 'insert', 'table-operations', 'block-operations'];
+  const fixed = items.slice(0, items.findIndex(item => item.id === 'format'));
+  editorContext.open([...fixed, ...order.flatMap(id => items.filter(item => item.id === id))], event.clientX, event.clientY);
 }
 source.dom.addEventListener('contextmenu', event => openEditorContext(event, 'source'));
 render.dom.addEventListener('contextmenu', event => openEditorContext(event, 'render'));
@@ -1829,7 +1846,7 @@ function searchOptions() {
     wholeWord: $<HTMLInputElement>('find-word').checked,
   };
 }
-function updateFind(next = false) { $('find-result').textContent = find(render, searchOptions(), next); }
+function updateFind(next: boolean | number = false) { $('find-result').textContent = find(render, searchOptions(), next); }
 $<HTMLInputElement>('find').oninput = () => updateFind();
 for (const id of ['find-regex', 'find-case', 'find-word']) $<HTMLInputElement>(id).onchange = () => updateFind();
 document.addEventListener('keydown', event => {
@@ -1854,7 +1871,7 @@ document.addEventListener('keydown', event => {
   else if (key === 'n') { event.preventDefault(); $( 'new').click(); }
   else if (key === 'o') { event.preventDefault(); $( 'open').click(); }
 }, true);
-$<HTMLInputElement>('find').onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); updateFind(true); } else if (event.key === 'Escape') $('find-close').click(); };
+$<HTMLInputElement>('find').onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); updateFind(event.shiftKey ? -1 : 1); } else if (event.key === 'Escape') $('find-close').click(); };
 // 非模态弹窗不响应 Esc（浏览器只对模态弹窗派发 cancel），这里统一补上取消语义。
 document.addEventListener('keydown', event => {
   if (closestOf(event.target, '#settings-shortcuts input')) return;
@@ -1882,12 +1899,13 @@ document.addEventListener('keydown', event => {
     const binding = shortcutOf(command.id);
     if (!binding || !matchShortcut(binding, event)) continue;
     const composed = /ctrl|alt|meta|cmd/i.test(binding);
-    if (typing && !composed) continue;
+    if (typing && !composed && event.key !== 'F11') continue;
     // 目标元素存在时走元素（保持与按钮一致的禁用判断），否则走统一命令分发。
-    const element = document.getElementById(command.id) as HTMLButtonElement | null;
+    const id = command.id === 'focus-mode' ? 'focus-toggle' : command.id;
+    const element = document.getElementById(id) as HTMLButtonElement | null;
     if (element && element.disabled) continue;
     event.preventDefault();
-    if (element) element.click(); else runCommand(command.id);
+    if (element) element.click(); else runCommand(id);
     return;
   }
 });
@@ -1907,7 +1925,8 @@ function applyTypography() {
   const root = document.documentElement.style;
   root.setProperty('--font-body', current.font_body || '"Microsoft YaHei","Segoe UI",sans-serif');
   root.setProperty('--font-mono', current.font_mono || 'Consolas,"Microsoft YaHei",monospace');
-  root.setProperty('--font-size', `${current.font_size}px`);
+  root.setProperty('--font-size', `${current.font_size}${current.font_unit}`);
+  $('font-size-dropdown').querySelector('.dropdown-popup')!.innerHTML = fontSizes(current.font_unit).map(size => `<button data-size="${size}" role="menuitem">${size}</button>`).join('');
   root.setProperty('--line-height', String(current.line_height));
 }
 applyTypography();
@@ -1935,6 +1954,7 @@ function setupTypographyControls() {
     });
   }
   const size = $<HTMLInputElement>('font-size-input'), lineHeight = $<HTMLInputElement>('line-height');
+  size.min = current.font_unit === 'px' ? '8' : '0.5'; size.max = current.font_unit === 'px' ? '32' : '2'; size.step = 'any';
   size.value = String(current.font_size); lineHeight.value = String(current.line_height);
   size.onchange = () => action(async () => { await saveSettings({ font_size: Number(size.value) }); applyTypography(); });
   lineHeight.onchange = () => action(async () => { await saveSettings({ line_height: Number(lineHeight.value) }); applyTypography(); });
@@ -2097,7 +2117,7 @@ function renderRecentFolders() {
 // I-4：默认启动模式决定初始（及新建空白页）的编辑 / 只读状态。
 if (workspace.active && settings().default_mode === 'read') workspace.active.readOnly = true;
 if (isTauri()) {
-  autosaveTimer = startAutosave(workspace, saveQueue, () => status());
+  autosaveTimer = setInterval(() => { flushInline(); void autosaveNow(); }, 60_000);
   const appWindow = getCurrentWindow();
   await appWindow.onDragDropEvent(event => {
     const payload = event.payload;
@@ -2150,6 +2170,10 @@ if (isTauri()) {
     await listen('single-instance', () => { void action(consumeLaunch); });
   } catch (reason) { error(reason); }
 }
+const views = setupViewPresets({
+  read: () => ({ paper: paper.enabled, source: sourceVisible, sidebar: !$('outline-panel').hidden, toolbar: !document.body.classList.contains('toolbar-hidden') }),
+  apply: state => { if (workspace.active?.composition) throw new Error('请先完成当前输入，再切换视图。'); toggleSourceVisibility(state.source); toggleOutline(!state.sidebar); document.body.classList.toggle('toolbar-hidden', !state.toolbar); paper.set(state.paper); }, fail: error,
+});
 // S-45/S-47/S-42：字体与快捷键控件、最近打开列表、菜单快捷键提示。
 try {
   setupTypographyControls();
@@ -2161,6 +2185,7 @@ try {
       sourceDefault=settings().show_source;
       toggleSourceVisibility(sourceDefault);
     }
+    views.restore();
     $('status-text').textContent = '设置已保存';
   } });
   renderRecent();

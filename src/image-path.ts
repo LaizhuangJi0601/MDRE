@@ -11,6 +11,11 @@ export function absoluteImagePath(value: string): string | null {
   return /^(?:[A-Za-z]:\/|\/\/[^/]+\/[^/]+|\/)/.test(path) ? path : null;
 }
 
+// 导出时图片必须能内嵌进单个 HTML：data、HTTPS 或可读取的本地绝对路径（file URI、盘符、UNC）。
+export function embeddableImageSource(value: string): boolean {
+  return /^(?:data:image\/(?:png|jpeg|gif|webp|svg\+xml);|https?:\/\/)/i.test(value) || !!absoluteImagePath(value);
+}
+
 export function imageFileUri(value: string): string {
   const path = absoluteImagePath(value);
   if (!path) throw new Error('图片需要绝对文件路径。');

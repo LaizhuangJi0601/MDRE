@@ -85,6 +85,15 @@ type Traced = Token & { meta: Trace | null };
 export const markdown = new MarkdownIt('commonmark', { html: true, linkify: false, typographer: false, xhtmlOut: false }).enable(['table', 'strikethrough']);
 (markdown.options as typeof markdown.options & { maxNesting: number }).maxNesting = 100;
 const validateLink = markdown.validateLink.bind(markdown);
+// 列表内的空段无法仅用空行表达；显式 HTML 空段可往返且仍是标准 HTML。
+markdown.block.ruler.before('html_block', 'editable_empty_paragraph', (state, start, _end, silent) => {
+  const from = state.bMarks[start] + state.tShift[start], to = state.eMarks[start];
+  const raw = state.src.slice(from, to), content = state.parentType === 'list' ? raw.replace(/^\[[ xX]\][ \t]+/, '') : raw;
+  if (state.sCount[start] - state.blkIndent >= 4 || !/^<p><\/p>[ \t]*$/.test(content)) return false;
+  if (silent) return true;
+  const open = state.push('paragraph_open', 'p', 1); open.map = [start, start + 1];
+  state.push('paragraph_close', 'p', -1); state.line = start + 1; return true;
+}, { alt: ['paragraph', 'reference'] });
 markdown.validateLink = value => /^file:/i.test(value) && !!absoluteImagePath(value) || validateLink(value);
 const colors = /^(?:red|blue|green|yellow|orange|purple|black|white|gray|grey|#[0-9a-f]{3}(?:[0-9a-f]{3})?)$/i;
 // S-38：字号只接受正有限数值加 em 或 px，与 C.2 的字号参数约束一致。

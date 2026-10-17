@@ -70,15 +70,19 @@ export const searchPlugin = new Plugin<SearchState>({
   props: { decorations: state => key.getState(state)!.decorations },
 });
 export function searchState(view: EditorView) { return key.getState(view.state)!; }
-export function find(view: EditorView, options: SearchOptions, next = false) {
+export function find(view: EditorView, options: SearchOptions, next: boolean | number = false) {
   const old = searchState(view);
   try { compile(options); } catch { view.dispatch(view.state.tr.setMeta(key, { options, active: -1 })); return '正则表达式无效'; }
-  const active = next && old.options.query === options.query ? (old.active + 1) % Math.max(1, old.hits.length) : 0;
+  const count = Math.max(1, old.hits.length), step = typeof next === 'number' ? next : next ? 1 : 0;
+  const active = step && JSON.stringify(old.options) === JSON.stringify(options) ? (old.active + step + count) % count : 0;
   view.dispatch(view.state.tr.setMeta(key, { options, active }));
   const result = searchState(view);
   if (options.query && result.hits[active]) {
+    // 明确交给渲染栏驱动同步，避免源码栏把跳转位置拉回。
+    view.dom.dispatchEvent(new CustomEvent('mdre:search-jump', { bubbles: true }));
     const rect = view.coordsAtPos(result.hits[active].from), pane = view.dom.closest<HTMLElement>('#render')!, bounds = pane.getBoundingClientRect();
     if (rect.top < bounds.top || rect.bottom > bounds.bottom) pane.scrollTop += rect.top - bounds.top - bounds.height / 3;
+    requestAnimationFrame(() => pane.querySelector<HTMLElement>('.search-hit.current')?.scrollIntoView({ block: 'center', inline: 'nearest' }));
   }
   if (!options.query) return '';
   if (!result.hits.length) return '无匹配';

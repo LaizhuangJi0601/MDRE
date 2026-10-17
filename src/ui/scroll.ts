@@ -20,6 +20,7 @@ export class ScrollSync {
   private panes: Record<Side, HTMLElement>;
   constructor(private document: () => DocumentSession, private render: EditorView, private source: CMView, private ready: () => boolean) {
     this.panes = { source: source.scrollDOM, render: render.dom.closest<HTMLElement>('#render')! };
+    this.panes.render.addEventListener('mdre:search-jump', () => { this.driver = 'render'; this.preservePending = false; this.expected.clear(); });
     for (const side of ['source', 'render'] as const) for (const event of ['wheel', 'pointerdown', 'touchstart', 'keydown']) this.panes[side].addEventListener(event, () => { this.driver = side; }, { passive: true });
     for (const side of ['source', 'render'] as const) this.panes[side].addEventListener('scroll', () => {
       const top = this.panes[side].scrollTop, expected = this.expected.get(side); this.expected.delete(side);

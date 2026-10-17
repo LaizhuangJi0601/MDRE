@@ -91,7 +91,11 @@ export function renderedEdit(model: Model, expected: PMNode): ReturnType<typeof 
         if (equal(semantics(next.doc), semantics(expected))) return { source, model: next, edit };
       }
       const raw = model.source.slice(block.from, block.to);
-      const prefix = /^(?:\uFEFF)?(?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?(?:#{1,6}[ \t]+)?/.exec(raw)![0];
+      // 段落中的数字不是列表前缀；仅沿实际容器保留缩进与标记。
+      const inList = model.blocks.some(parent => parent.id === block.parent && parent.type === 'list_item');
+      const prefix = /^(?:\uFEFF)?(?:[ \t]*>[ \t]?)*[ \t]*/.exec(raw)![0]
+        + (inList ? /^(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/.exec(raw.trimStart())?.[0] ?? '' : '')
+        + (block.type === 'heading' ? /^(?:#{1,6})[ \t]+/.exec(raw.trimStart())?.[0] ?? '' : '');
       const ending = /(?:\r\n|\r|\n)$/.exec(raw)?.[0] || '';
       const id = nextBlock.type.name === 'heading' && nextBlock.attrs.explicitAnchor ? ` {#${nextBlock.attrs.explicitAnchor}}` : '';
       const edit = { from: block.from, to: block.to, insert: prefix + (nextBlock.type.name === 'table_cell' ? wrapCell(serializeInline(nextBlock), nextBlock.attrs.cellAlign) : serializeInline(nextBlock)) + id + ending };
@@ -174,7 +178,7 @@ function serializeBlock(node: PMNode, model: Model, canonical = false, bulletMar
         const content = Array.from({ length: item.childCount }, (_, j) => {
           const child = item.child(j);
           // 子块的原文包含父列表缩进，序列化时由当前容器统一重新加前缀。
-          return child.type.name === 'paragraph' ? serializeInline(child, [], canonical) : serializeBlock(child, { ...model, blocks: [] }, canonical);
+          return child.type.name === 'paragraph' ? (!child.content.size && item.childCount > 1 ? '<p></p>' : serializeInline(child, [], canonical)) : serializeBlock(child, { ...model, blocks: [] }, canonical);
         }).join('\n\n').split('\n');
         return marker + task + content[0] + content.slice(1).map(line => '\n' + (line ? ' '.repeat(marker.length) + line : '')).join('');
       }).join('\n');
@@ -244,7 +248,9 @@ function serializeInline(node: PMNode, skip: readonly Mark[] = [], canonical = f
     html: { open: (_state, mark) => String(mark.attrs.open), close: (_state, mark) => String(mark.attrs.close), mixable: false, expelEnclosingWhitespace: false },
   // ProseMirror 已转义 ~；额外再转义会留下多余反斜杠，导致分段回写校验失败。
   }, { escapeExtraCharacters: /[={}<>!|$^]/g });
-  return serializer.serialize(schema.nodes.doc.create(null, schema.nodes.paragraph.create(null, children)));
+  // MarkdownSerializer 的行内入口没有块首上下文；数字段首单独转义句点。
+  return serializer.serialize(schema.nodes.doc.create(null, schema.nodes.paragraph.create(null, children)))
+    .replace(/^(\d{1,9})([.)])(?=\s|$)/gm, '$1\\$2');
 }
 
 export function splitParagraph(model: Model, pos: number): Patch {
