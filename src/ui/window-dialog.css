@@ -1,0 +1,33 @@
+[data-window-chrome] { padding:0; overflow:hidden; }
+.dialog-window-bar { display:flex; flex-shrink:0; align-items:center; min-height:42px; background:var(--soft); border-bottom:1px solid var(--border); user-select:none; }
+.dialog-window-bar h3 { margin:0!important; padding:10px 18px!important; border:0!important; font-size:13px!important; font-weight:600; flex:1; cursor:move; }
+.dialog-window-controls { display:flex; align-self:stretch; }
+.dialog-window-controls button { width:44px; display:grid; place-items:center; border-radius:0; padding:0; }
+.dialog-window-controls button svg { width:14px; height:14px; }
+.dialog-window-controls button[data-window-action="close"]:hover { background:#c42b1c; color:white; }
+[data-window-chrome] > .dialog-resize { display:none; }
+.window-edge { position:absolute; z-index:10; touch-action:none; }
+.window-edge[data-edge="n"],.window-edge[data-edge="s"] { height:5px; left:7px; right:7px; cursor:ns-resize; }
+.window-edge[data-edge="n"] { top:0; } .window-edge[data-edge="s"] { bottom:0; }
+.window-edge[data-edge="e"],.window-edge[data-edge="w"] { width:5px; top:7px; bottom:7px; cursor:ew-resize; }
+.window-edge[data-edge="e"] { right:0; } .window-edge[data-edge="w"] { left:0; }
+.window-edge:is([data-edge="ne"],[data-edge="nw"],[data-edge="se"],[data-edge="sw"]) { width:9px; height:9px; }
+.window-edge:is([data-edge="ne"],[data-edge="nw"]) { top:0; }.window-edge:is([data-edge="se"],[data-edge="sw"]) { bottom:0; }
+.window-edge:is([data-edge="ne"],[data-edge="se"]) { right:0; }.window-edge:is([data-edge="nw"],[data-edge="sw"]) { left:0; }
+.window-edge:is([data-edge="nw"],[data-edge="se"]) { cursor:nwse-resize; }.window-edge:is([data-edge="ne"],[data-edge="sw"]) { cursor:nesw-resize; }
+dialog.dialog-collapsed { height:43px!important; min-height:0!important; }
+dialog.dialog-collapsed > :not(.dialog-window-bar) { display:none!important; }
+body[data-aux-window] { margin:0; height:100vh; overflow:hidden; }
+body[data-aux-window] :is(#settings-dialog,#settings-open,#help-menu) { display:none!important; }
+body[data-aux-window] :is(#help-dialog,#shortcut-dialog)[open] { position:fixed!important; inset:0!important; width:100vw!important; height:100vh!important; max-width:none!important; max-height:none!important; margin:0; border:0; border-radius:0; box-shadow:none; }
+body[data-aux-window] :is(.dialog-window-bar,.window-edge,.dialog-resize) { display:none!important; }
+#shortcut-dialog { width:min(900px,calc(100vw - 32px)); height:min(660px,calc(100vh - 32px)); font-size:13px; }
+#shortcut-dialog[open] { display:flex; flex-direction:column; }
+#shortcut-dialog > .dialog-content { padding:20px 24px; overflow:auto; min-height:0; flex:1; scrollbar-width:thin; }
+#shortcut-dialog .dialog-hint { margin:0 0 20px; line-height:1.8; color:var(--muted); }
+#shortcut-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 28px; }
+#shortcut-list .shortcut-row { display:flex; flex-direction:column; align-items:stretch; gap:7px; min-width:0; margin:0; }
+#shortcut-list label { font-weight:600; }
+#shortcut-list input { width:100%; min-width:0; padding:8px 10px; height:36px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); }
+#shortcut-dialog > .dialog-actions { padding:12px 24px; margin:0; border-top:1px solid var(--border); flex-shrink:0; }
+@media(max-width:620px) { #shortcut-list { grid-template-columns:1fr; } }

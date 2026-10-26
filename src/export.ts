@@ -1,4 +1,5 @@
-import hljs from 'highlight.js';
+import hljs, {loadHighlighter} from './render/highlight';
+import katex from 'katex';
 import { markdown, normalizeWidths, parseWidthList } from './model';
 import { renderDiagramImage } from './render/mermaid';
 import { renderMath, sanitizeHtml, tocHtml, type TocEntry } from './render/markdown';
@@ -8,7 +9,7 @@ import { codeTheme, type CodeTheme } from './ui/code-appearance';
 import { embeddableImageSource } from './image-path';
 import type { Model } from './model';
 
-export type ExportAppearance = { fontSize?: string; fontFamily?: string; lineHeight?: string; codeThemes?: CodeTheme[] };
+export type ExportAppearance = { fontSize?: string; fontFamily?: string; lineHeight?: string; codeThemes?: CodeTheme[]; mathFormat?: 'mathml' };
 export function exportAppearance(owner: string, model: Model, editor: HTMLElement): ExportAppearance {
   const style=getComputedStyle(editor);
   return {fontSize:style.fontSize,fontFamily:style.fontFamily,lineHeight:style.lineHeight,
@@ -97,9 +98,13 @@ mark { background:#fff0a6 }
 `;
 
 // S-2/S-3/S-4：静态导出与预览共用同一份渲染结果；此处把占位元素替换为最终输出。
-function enhanceStatic(container: HTMLElement, formulas: readonly string[]) {
+function enhanceStatic(container: HTMLElement, formulas: readonly string[], mathFormat?: 'mathml') {
   for (const [index, element] of Array.from(container.querySelectorAll<HTMLElement>('.math-inline, .math-block')).entries()) {
     const latex = formulas[index];
+    if(mathFormat==='mathml') {
+      const display=element.classList.contains('math-block'),replacement=document.createElement(display?'div':'span');
+      replacement.innerHTML=katex.renderToString(latex,{displayMode:display,output:'mathml',throwOnError:true,trust:false,strict:'ignore'});element.replaceWith(replacement);continue;
+    }
     const holder = document.createElement('span');
     holder.innerHTML = renderMath(latex, element.classList.contains('math-block'));
     const output = holder.firstElementChild ?? holder;
@@ -153,6 +158,7 @@ export async function staticHtml(source: string, resolve?: (src: string) => Prom
   }
   let sequence = 0;
   let codeIndex = 0;
+  if(container.querySelector('pre code'))await loadHighlighter();
   for (const code of container.querySelectorAll('pre > code')) {
     const language = Array.from(code.classList).find(name => name.startsWith('language-'))?.slice(9);
     if (language === 'mermaid') {
@@ -199,7 +205,7 @@ export async function staticHtml(source: string, resolve?: (src: string) => Prom
   for (const code of container.querySelectorAll('code')) {
     if (!code.closest('pre')) code.classList.add('inline-code');
   }
-  enhanceStatic(container, formulas);
+  enhanceStatic(container, formulas, appearance.mathFormat);
   // 文档内容已经过白名单；增强器只生成本地受信的公式、目录和脚注标记。
   // S-2：公式样式与字体内嵌，导出文件离线可打开。
   const mathCss = container.querySelector('.katex') ? await (await import('./render/katex')).katexCssForExport() : '';

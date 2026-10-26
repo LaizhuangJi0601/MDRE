@@ -1,7 +1,8 @@
+import {markUi,languageAttributes,t} from '../i18n/ui';
 import type { Node as PMNode } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';
 import { sanitizeHtml } from '../render/html';
-import hljs from 'highlight.js';
+import hljs from '../render/highlight';
 import { codeLanguages, codeLanguageName } from './code-language';
 import { icon } from './icons';
 import { codeTheme, explicitCodeTheme, toggleCodeTheme } from './code-appearance';
@@ -13,23 +14,23 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
   let node = initial, composing = false, pending = false;
   const owner = options.docId?.();
   const inline = node.type.name === 'raw_inline';
-  const isHtml = inline || node.attrs.kind === 'html_block';
+  const isHtml = inline || ['html','html_block'].includes(String(node.attrs.kind));
   const dom = document.createElement(inline ? 'span' : 'div');
   dom.className = inline ? 'inline-editor raw-inline-editor' : 'inline-editor opaque';
   dom.contentEditable = 'false';
   if (!inline) dom.dataset.block = node.attrs.id;
-  const label = document.createElement('label'); label.className = 'opaque-label';
+  const label = document.createElement('label'); label.className = 'opaque-label';markUi(label);
   const input = document.createElement('textarea'); input.spellcheck = false;
   const editor = document.createElement('div'); editor.className = 'inline-code-editor';
   const highlight = document.createElement('pre'); highlight.className = 'inline-code-highlight'; highlight.setAttribute('aria-hidden', 'true'); editor.append(highlight, input);
-  input.setAttribute('aria-label', inline ? '内联 HTML 源码' : `${node.attrs.kind} 内容`);
+  languageAttributes(input,element=>element.setAttribute('aria-label',inline?t('内联 HTML 源码'):`${node.attrs.kind} ${t('内容')}`));
   const language = document.createElement('select'); language.className = 'inline-language'; language.setAttribute('aria-label', '代码块语言');
   for (const [value, title] of codeLanguages) language.add(new Option(title, value));
   const preview = document.createElement('div'); preview.className = 'inline-preview';
   const fenced = () => !inline && /^(?:\s*>\s*)*\s*(`{3,}|~{3,})/.test(String(node.attrs.raw));
   const isCode = () => !inline && node.attrs.kind === 'code';
   let collapsed = isCode() && String(node.attrs.content).replace(/\n$/, '').split('\n').length >= 20;
-  const header = document.createElement('div'); header.className = 'code-header';
+  const header = document.createElement('div'); header.className = 'code-header';markUi(header);
   const fold = document.createElement('button'); fold.className = 'code-toggle';
   header.append(language, fold);
   const actions = document.createElement('div'); actions.className = 'code-actions';
@@ -115,7 +116,7 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
     const text = isCode() ? String(node.attrs.content).replace(/\n$/, '') : String(node.attrs.raw);
     if (input.value !== text) { const from = input.selectionStart, to = input.selectionEnd; input.value = text; if (document.activeElement === input) input.setSelectionRange(Math.min(from, text.length), Math.min(to, text.length)); }
     resize(); preview.replaceChildren();
-    if (node.attrs.kind === 'html_block' || inline) {
+    if (isHtml) {
       preview.innerHTML = sanitizeHtml(String(node.attrs.content || node.attrs.raw));
       for (const image of preview.querySelectorAll<HTMLImageElement>('img[src]')) {
         const original = image.getAttribute('src')!;
@@ -139,6 +140,7 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
       if (control === input && event.key === 'Tab' && !options.readOnly()) { event.preventDefault(); input.setRangeText('  ', input.selectionStart, input.selectionEnd, 'end'); write(); }
     });
   }
+  window.addEventListener('mdre:highlight-ready',resize);
   dom.append(label, header, editor, preview);
   paint();
   let lastWidth = -1;
@@ -146,7 +148,7 @@ export function inlineEditor(initial: PMNode, view: EditorView, getPos: () => nu
   function syncScroll() { highlight.scrollTop = input.scrollTop; gutter.style.transform = `translateY(${-input.scrollTop}px)`; }
   input.addEventListener('scroll', syncScroll);
   return { dom, stopEvent: () => true, ignoreMutation: () => true,
-    destroy() { observer.disconnect(); },
+    destroy() { window.removeEventListener('mdre:highlight-ready',resize); observer.disconnect(); },
     update(next) { if (options.docId?.() !== owner || next.type !== node.type || (!inline && next.attrs.id !== node.attrs.id)) return false; node = next; paint(); return true; },
   };
 }

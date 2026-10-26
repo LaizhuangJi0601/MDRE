@@ -1,3 +1,4 @@
+@import './ui/motion.css';
 @import 'highlight.js/styles/github.css';
 :root { font-family:"Segoe UI","Microsoft YaHei",sans-serif; color:var(--text); background:var(--surface); font-synthesis:none; color-scheme:light; --text:#424242; --muted:#858585; --background:#fafafa; --surface:#fafafa; --soft:#fafafa; --border:#e3e3e3; --hover:#e9e9e9; --accent:#0078d4; --selection:#cce5ff; --hit:#f8e5aa; --danger:#c42b38; --font-body:"Microsoft YaHei","Segoe UI",sans-serif; --font-mono:Consolas,"Microsoft YaHei",monospace; --font-size:15px; --line-height:1.85; --mono-size:14px }
 :root[data-theme="dark"] { color-scheme:dark; --text:#cccccc; --muted:#878787; --background:#1f1f1f; --surface:#1f1f1f; --soft:#1f1f1f; --border:#333333; --hover:#333333; --accent:#6cb6ff; --selection:#294e75; --hit:#665324; --danger:#ff8795 }
@@ -295,22 +296,6 @@ main.source-hidden #render-pane { grid-column:2 }
 .settings-tools { display:flex; gap:10px; flex-wrap:wrap; }
 #settings-shortcuts .shortcut-row { margin:8px 0; }
 #settings-error,[data-state="error"]#settings-tool-status { color:var(--danger); }
-#help-dialog { width:min(1180px,calc(100vw - 24px)); height:min(780px,calc(100vh - 24px)); }
-.help-controls { display:flex; align-items:center; gap:24px; flex-wrap:wrap; padding-bottom:12px; }
-.help-controls label { display:flex; align-items:center; gap:8px; }
-#help-content { overflow:auto; font-size:13px; line-height:1.65; }
-#help-content table { border-collapse:collapse; width:100%; }
-#help-content th,#help-content td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
-#help-content th { background:var(--hover); }
-#help-content.syntax-table td:first-child,#help-content.syntax-table td:last-child { white-space:nowrap; }
-#help-content td:nth-child(2) { min-width:200px; }
-#help-content code { font:12px/1.6 var(--font-mono); white-space:pre; background:var(--hover); border-radius:3px; padding:2px 4px; }
-#help-content h1 { font-size:20px; margin:0 0 12px; }
-#help-content h2 { font-size:16px; margin:20px 0 8px; }
-#help-content p { color:var(--text); }
-#help-content a { color:var(--accent); }
-#help-content pre { white-space:pre-wrap; overflow-wrap:anywhere; }
-#help-link-status { color:var(--danger); font-size:12px; }
 @media (max-width:600px) { .settings-grid { grid-template-columns:1fr; } }
 
 /* 单行按钮与分类标签；窄窗口水平滚动。 */
@@ -445,10 +430,6 @@ main.has-outline { --outline-width:var(--sidebar-width,216px); }
 #settings-shortcuts .shortcut-row { display:flex; flex-direction:column; gap:4px; min-width:0; }
 #settings-shortcuts input { width:100%; min-width:0; }
 #settings-help { margin-right:auto; }
-#help-content { overflow:auto; }
-#help-content table { width:max-content; min-width:100%; }
-#help-content th,#help-content td { white-space:nowrap; }
-#help-content.syntax-table td:nth-child(2) { white-space:normal; min-width:240px; max-width:520px; }
 .context-menu { max-height:calc(100vh - 8px); overflow-y:auto; }
 .html-source-toggle,#block-handle { display:none!important; }
 .opaque:has(> .inline-preview):not(.code-block) { border:0; padding:0; background:transparent; }
@@ -468,10 +449,72 @@ body.toolbar-hidden #edit-bar { display:none; }
 body.toolbar-hidden #status-export,body.toolbar-hidden #status-settings { display:inline-flex; }
 #find { width:clamp(240px,28vw,440px); }
 #search-bar { flex-wrap:wrap; }
-#help-content table { table-layout:auto; }
-#help-content th,#help-content td { white-space:normal!important; overflow-wrap:anywhere; height:auto; }
-#help-content code { white-space:pre-wrap; overflow-wrap:anywhere; }
-#help-content td:nth-child(2) { min-width:0; }
-#help-content pre { overflow:auto; }
 .ProseMirror hr.ProseMirror-selectednode { outline:2px solid var(--accent); }
 .ProseMirror .selected-cell { background:var(--selection); }
+/* 0.2.6：非 A4 页宽按渲染栏比例居中，纸张与导出继续使用原布局。 */
+#render:not(.paper-mode) .ProseMirror { width:var(--reading-width,100%); max-width:none; margin-inline:auto; box-sizing:border-box; }
+#status { position:relative; }
+#reading-width { position:absolute; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:7px; padding-inline:8px; background:var(--surface); font-size:11px; }
+#reading-width[hidden] { display:none; }
+#reading-width input { width:100px; accent-color:#a6a6a6; }
+#reading-width output { min-width:34px; font-variant-numeric:tabular-nums; }
+@media(max-width:1050px) { #reading-width input { width:64px; } #status-path { max-width:18%; } }
+#settings-dialog .dialog-content { display:flex; flex-direction:column; gap:14px; min-height:0; overflow:hidden; padding:18px 22px; }
+#settings-dialog .settings-layout { display:flex; flex:1; min-height:0; gap:24px; }
+#settings-dialog .settings-navigation { display:flex; flex-direction:column; gap:5px; width:150px; flex-shrink:0; border-right:1px solid var(--border); padding-right:14px; }
+#settings-dialog .settings-navigation button { padding:10px 12px; text-align:left; border-radius:7px; }
+#settings-dialog .settings-navigation button[aria-current="true"] { background:var(--hover); color:var(--accent); font-weight:600; }
+#settings-dialog #settings-form { flex:1; min-width:0; overflow:auto; padding-right:9px; }
+#settings-dialog fieldset { border:0; margin:0 0 22px; padding:0; }
+#settings-dialog fieldset[hidden] { display:none; }
+#settings-dialog legend { font-size:17px; font-weight:600; padding:0 0 18px; }
+#settings-dialog .settings-grid { gap:18px 22px; }
+#settings-dialog .settings-grid label { display:flex; flex-direction:column; gap:7px; align-items:stretch; }
+#settings-dialog .settings-wide { grid-column:1/-1; }
+#settings-dialog input:not([type="checkbox"]),#settings-dialog select { border:1px solid var(--border); border-radius:6px; padding:7px 9px; min-width:0; width:100%; background:var(--surface); color:var(--text); }
+#settings-dialog .settings-search { display:flex; align-items:center; gap:16px; flex-shrink:0; }
+#settings-dialog .settings-search input { flex:1; }
+#settings-dialog .settings-preview { padding:10px 14px; border:1px solid var(--border); border-radius:8px; background:var(--soft); flex-shrink:0; }
+#settings-dialog .settings-preview strong { font-size:11px; color:var(--muted); }
+#settings-dialog .settings-preview p { margin:4px 0; max-height:74px; overflow:auto; }
+#settings-dialog .settings-preview[data-preview-theme="dark"] { color:#e6e8ec; background:#20242b; }
+#settings-dialog .settings-preview[data-preview-theme="light"] { color:#202632; background:#f7f8fb; }
+#settings-dialog .dialog-actions { padding:12px 22px; border-top:1px solid var(--border); }
+body[data-settings-window] { display:block; margin:0; height:100vh; overflow:hidden; }
+body[data-settings-window] #settings-dialog { position:fixed; inset:0; margin:0; width:100vw; height:100vh; max-width:none; max-height:none; border:0; border-radius:0; box-shadow:none; display:flex; flex-direction:column; }
+body[data-settings-window] #settings-dialog > h3 { margin:0; padding:18px 22px 0; font-size:20px; flex-shrink:0; }
+body[data-settings-window] #settings-dialog > :not(h3):not(.dialog-actions) { min-height:0; }
+body[data-settings-window] #settings-dialog > .settings-layout { padding:0 22px; }
+body[data-settings-window] #settings-dialog > .settings-search,body[data-settings-window] #settings-dialog > .settings-preview { margin:12px 22px; }
+#external-compare { position:fixed; inset:8vh 8vw; width:84vw; height:84vh; margin:0; max-width:none; background:var(--surface); color:var(--text); border:1px solid var(--border); }
+#external-compare .external-columns { display:flex; gap:16px; height:65%; }
+#external-compare .external-columns label { display:flex; flex:1; min-width:0; flex-direction:column; gap:8px; }
+#external-compare textarea { width:100%; flex:1; resize:none; background:var(--surface); color:var(--text); }
+
+/* 0.2.6-updata1：单一内容滚动区，预览随外观分类显示。 */
+#settings-dialog .dialog-content { gap:14px; padding-top:10px; }
+#settings-dialog legend { display:none; }
+#settings-dialog fieldset { margin:0; padding:2px 2px 14px; min-width:0; }
+#settings-dialog .settings-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 22px; }
+#settings-dialog .settings-grid strong,#settings-shortcuts label { font-weight:600; }
+#settings-dialog input,#settings-dialog select { font-weight:400; }
+#settings-shortcuts { max-height:none; overflow:visible; grid-template-columns:repeat(2,minmax(0,1fr)); }
+#settings-dialog .settings-preview { margin-top:20px; }
+#settings-dialog .settings-preview p { max-height:none; overflow:visible; }
+#settings-dialog #settings-error:empty { display:none; }
+body[data-settings-window] #settings-dialog { padding:12px 20px 0; gap:14px; }
+body[data-settings-window] #settings-dialog > .settings-search { margin:0; }
+body[data-settings-window] #settings-dialog > .settings-layout { padding:0; }
+body[data-settings-window] #settings-dialog > .dialog-actions { margin:0 -20px; flex-shrink:0; }
+body[data-settings-window] #settings-error:not(:empty) { flex-shrink:0; }
+.menu-field label { flex-shrink:0; white-space:nowrap; }
+.menu-field input[type=number] { width:76px; min-width:0; }
+#reading-width input { appearance:none; -webkit-appearance:none; height:5px; margin-inline:0; padding:0; border:0; border-radius:3px; background:linear-gradient(to right,#ababab 0 var(--range-fill,50%),#dedede var(--range-fill,50%) 100%); }
+#reading-width input::-webkit-slider-thumb { appearance:none; -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:#999; border:1px solid var(--surface); }
+#reading-width input::-moz-range-thumb { width:10px; height:10px; border-radius:50%; background:#999; border:1px solid var(--surface); }
+#reading-width input:focus-visible { outline:2px solid var(--muted); outline-offset:4px; }
+@media(max-width:620px) { #settings-dialog .settings-grid,#settings-shortcuts { grid-template-columns:1fr; } #settings-dialog .settings-navigation { width:120px; padding-right:8px; } }
+
+/* 非 A4 对齐只用于正文段落，不覆盖表格、代码和公式的布局。 */
+#render:not(.paper-mode) .ProseMirror p { text-align:var(--reading-align,justify); }
+#render:not(.paper-mode) .ProseMirror :is(td,th) p { text-align:inherit; }

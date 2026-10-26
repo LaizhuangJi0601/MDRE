@@ -16,6 +16,7 @@ export function setupPaper(pane: HTMLElement, button: HTMLButtonElement, label: 
     pane.classList.toggle('paper-paged', enabled && settings().paper_layout === 'paged');
     pane.style.setProperty('--paper-zoom', String(zoom));
     pane.style.setProperty('--paper-align', settings().paper_align);
+    pane.style.setProperty('--reading-align', settings().reading_align);
     document.documentElement.dataset.imageLayout = settings().image_layout;
     button.setAttribute('aria-pressed', String(enabled));
     button.dataset.tooltip = enabled ? '关闭 A4 纸张（Ctrl＋滚轮缩放）' : 'A4 纸张（Ctrl＋滚轮缩放）';

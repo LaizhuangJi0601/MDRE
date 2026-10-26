@@ -1,3 +1,4 @@
+import {settings} from '../persistence/settings';
 import { MathfieldElement, validateLatex } from 'mathlive';
 import 'mathlive/fonts.css';
 import katex from 'katex';
@@ -8,7 +9,8 @@ import { splitFormulaTag, joinFormulaTag, plainFormulaNumber } from '../math-tag
 MathfieldElement.fontsDirectory = null;
 MathfieldElement.soundsDirectory = null;
 MathfieldElement.computeEngine = null;
-MathfieldElement.locale = 'zh-cn';
+const language=()=>{MathfieldElement.locale=settings().language==='en'?'en':'zh-cn';};
+language();window.addEventListener('mdre:settings-applied',language);
 
 export function validateFormula(latex: string, display: boolean) {
   try {

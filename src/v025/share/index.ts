@@ -38,6 +38,8 @@ function appendExportItem(popup: HTMLElement, id: string, plugin: boolean) {
     if (plugin) popup.hidden = true;
     void runShareCopy();
   });
+  const paint=()=>{const doc=env().workspace?.active;button.disabled=!doc||!!doc.welcome;};
+  paint();window.addEventListener('mdre:document-changed',paint);
   popup.append(button);
 }
 

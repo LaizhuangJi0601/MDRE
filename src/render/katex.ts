@@ -1,7 +1,7 @@
 import katexCss from 'katex/dist/katex.min.css?raw';
 
 // 使用 Vite 实际打包的字体 URL，不能从 ?raw CSS 中直接访问 fonts/ 相对路径。
-const assets = import.meta.glob('../../node_modules/katex/dist/fonts/*.woff2', { eager: true, query: '?url&inline', import: 'default' }) as Record<string, string>;
+const assets = import.meta.glob('../../node_modules/katex/dist/fonts/*.woff2', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 let embedded: Promise<string> | null = null;
 export function katexCssForExport(): Promise<string> {
   if (embedded) return embedded;

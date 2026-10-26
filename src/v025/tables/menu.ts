@@ -106,6 +106,24 @@ function extendTableMenu(info: EditorContextInfo): void {
     { id: 'sep-table-to-markdown-v025', label: '', separator: true },
     convertItem,
   );
+  // 按使用顺序分组，避免历史追加项将插删、对齐与列宽混在一起。
+  const items = new Map(tableItem.children.filter(item => !item.separator).map(item => [item.id, item]));
+  const groups = [
+    ['row-above','row-below','column-before','column-after'],
+    ['row-remove','column-remove'],
+    ['table-merge','table-split'],
+    ['align-left','align-center','align-right','table-valign-middle'],
+    ['table-width-equal','table-width-fit','table-width-auto'],
+    ['table-select-all','table-to-markdown'],
+  ];
+  const ordered: ContextItem[] = [];
+  for (const group of groups) {
+    const entries=group.map(id=>items.get(id)).filter((item):item is ContextItem=>!!item);
+    if(!entries.length)continue;
+    if(ordered.length)ordered.push({id:`separator-v026-${ordered.length}`,label:'',separator:true});
+    ordered.push(...entries);entries.forEach(item=>items.delete(item.id));
+  }
+  tableItem.children=[...ordered,...items.values()];
 }
 
 function safeTable(model: Model, tableId: string): TableInfo | null {

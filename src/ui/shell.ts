@@ -92,12 +92,8 @@ export const shell = `
 <dialog id="conflict-dialog"><h3>保存冲突</h3><p class="dialog-message"></p><p>磁盘文件已被其他程序改动。可以另存为新文件保留当前内容，或重新加载磁盘版本放弃本地修改。</p><div class="dialog-actions"><button id="conflict-cancel">取消</button><button id="conflict-reload">重新加载磁盘</button><button id="conflict-save-as" class="primary-button">另存为…</button></div></dialog>
 <dialog id="missing-dialog"><h3>图片资源缺失</h3><p class="dialog-message"></p><div class="dialog-actions"><button id="missing-cancel">取消保存</button><button id="missing-proceed" class="primary-button">继续保存</button></div></dialog>
 <dialog id="encoding-dialog"><h3>非 UTF-8 文件</h3><p class="dialog-message"></p><p>保存默认沿用原编码；转换为 UTF-8 会改变磁盘文件编码。</p><div class="dialog-actions"><button id="encoding-convert">转为 UTF-8</button><button id="encoding-keep" class="primary-button">按原编码打开</button></div></dialog>
-<dialog id="shortcut-dialog" data-cancel="shortcut-cancel"><h3>快捷键设置</h3><p>点入输入框后直接按下组合键即可重绑，按 Escape 清空表示恢复默认。修改保存到配置文件。</p><div id="shortcut-list" class="shortcut-list"></div><div class="dialog-actions"><button id="shortcut-cancel">取消</button><button id="shortcut-save" class="primary-button">保存</button></div></dialog>
+<dialog id="shortcut-dialog" data-cancel="shortcut-cancel"><h3>快捷键设置</h3><p class="dialog-hint">点入输入框后按组合键即可重绑；Esc 恢复该项默认值。修改保存到配置文件。</p><div id="shortcut-list" class="shortcut-list"></div><div class="dialog-actions"><button id="shortcut-cancel">取消</button><button id="shortcut-save" class="primary-button">保存</button></div></dialog>
 <dialog id="goto-dialog" data-cancel="goto-cancel"><h3>跳转到行</h3><div class="dialog-field"><label for="goto-line-input">行号</label><input type="number" id="goto-line-input" min="1" aria-label="行号"></div><p id="goto-hint" class="dialog-hint"></p><div class="dialog-actions"><button id="goto-cancel">取消</button><button id="goto-confirm" class="primary-button">跳转</button></div></dialog>
 <div id="image-preview" hidden aria-hidden="true"><img id="image-preview-img" alt=""></div>
 <dialog id="image-dialog" data-cancel="image-close" aria-labelledby="image-title"><h3 id="image-title">图片查看</h3><div id="image-view-stage"><img id="image-large" alt=""></div><div class="dialog-actions"><button id="image-rotate-left" aria-label="向左旋转图片">左转 90°</button><button id="image-rotate-right" aria-label="向右旋转图片">右转 90°</button><button id="image-close" class="primary-button">关闭</button></div></dialog>
 <div id="tooltip" role="tooltip" hidden></div>`;
-
-
-
-

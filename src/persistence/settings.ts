@@ -6,6 +6,13 @@ export type LastSession = { folder: string | null; files: string[]; active_file:
 // 键名与 Rust `Settings` 的 serde 字段保持一致（蛇形），避免跨端读写错位。
 export type ViewState = { name: string; paper: boolean; source: boolean; sidebar: boolean; toolbar: boolean };
 export type Settings = {
+  language: 'zh-CN' | 'en';
+  reading_align: 'left' | 'center' | 'right' | 'justify';
+  motion: 'system' | 'on' | 'off';
+  pandoc_path: string;
+  word_reference: string;
+  render_width: number;
+  reading_positions: Record<string, { source: number; offset: number; sourceTop: number; sourceLeft: number }>;
   font_unit: 'px' | 'em';
   sidebar_visible: boolean;
   toolbar_visible: boolean;
@@ -33,6 +40,7 @@ export type Settings = {
   shortcuts: Record<string, string>;
 };
 export const defaults: Settings = {
+  language: 'zh-CN', reading_align: 'justify', motion: 'system', pandoc_path: '', word_reference: '', render_width: 80, reading_positions: {},
   font_unit: 'px', sidebar_visible: true, toolbar_visible: true, last_view: null,
   theme: 'system', code_theme: 'light', default_mode: 'edit', show_source: true, split: 50,
   paper_enabled: false, paper_layout: 'continuous', paper_align: 'justify', image_layout: 'fit', sidebar_width: 216, file_list_ratio: 60, outline_collapsed: false,
@@ -58,6 +66,13 @@ export const shortcutCommands: { id: string; label: string; fallback: string }[]
   { id: 'export-html', label: '导出 HTML', fallback: '' },
 ];
 const validators: Record<keyof Settings, (value: unknown) => boolean> = {
+  language: value => ['zh-CN','en'].includes(value as string),
+  reading_align: value => ['left','center','right','justify'].includes(value as string),
+  motion: value => ['system','on','off'].includes(value as string),
+  pandoc_path: value => typeof value === 'string' && value.length < 4096,
+  word_reference: value => typeof value === 'string' && value.length < 4096,
+  render_width: value => Number.isInteger(value) && Number(value) >= 60 && Number(value) <= 100,
+  reading_positions: value => !!value && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(item => { const p = item as Record<string, number>; return !!p && ['source', 'offset', 'sourceTop', 'sourceLeft'].every(key => Number.isFinite(p[key])) && p.source >= 0; }),
   font_unit: value => value === 'px' || value === 'em',
   sidebar_visible: value => typeof value === 'boolean',
   toolbar_visible: value => typeof value === 'boolean',
@@ -139,7 +154,7 @@ export function saveSettings(patch: Partial<Settings>): Promise<void> {
   const previous = current, next = sanitize({ ...current, ...patch });
   current = next;
   const operation = settingsWrites.then(async () => {
-    if (isTauri()) await invoke('write_settings', { settings: next });
+    if (isTauri()) await invoke('write_settings', { settings: next, patch });
   }).catch(reason => { if (current === next) current = previous; throw reason; });
   settingsWrites = operation.catch(() => {});
   return operation;

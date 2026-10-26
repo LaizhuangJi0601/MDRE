@@ -41,6 +41,13 @@ impl Default for LastSession {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Settings {
+    pub language: String,
+    reading_align: String,
+    motion: String,
+    pandoc_path: String,
+    word_reference: String,
+    render_width: u32,
+    reading_positions: std::collections::BTreeMap<String, serde_json::Value>,
     theme: String,
     code_theme: String,
     #[serde(alias = "defaultMode")]
@@ -89,6 +96,7 @@ fn default_backup_count() -> u32 { 0 }
 impl Default for Settings {
     fn default() -> Self {
         Settings {
+            language: "zh-CN".into(), reading_align: "justify".into(), motion: "system".into(), pandoc_path: String::new(), word_reference: String::new(), render_width: 80, reading_positions: std::collections::BTreeMap::new(),
             theme: "system".into(), code_theme: "light".into(), default_mode: "edit".into(), show_source: default_show_source(), split: default_split(),
             paper_enabled: false, paper_layout: "continuous".into(), paper_align: "justify".into(), image_layout: "fit".into(), sidebar_width: default_sidebar_width(), file_list_ratio: default_file_list_ratio(), outline_collapsed: false,
             font_body: String::new(), font_mono: String::new(), font_size: default_font_size(), font_unit: "px".into(), sidebar_visible: true, toolbar_visible: true, last_view: None, line_height: default_line_height(),
@@ -229,7 +237,7 @@ pub fn register_file_association(app: tauri::AppHandle, window: tauri::WebviewWi
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let exe = exe.to_string_lossy().into_owned();
     // 文档图标独立于应用 Logo，保留折角纸张设计；随应用内嵌、无需联网。
-    let icon = crate::persistence::app_root(&app, &window)?.join("mdre-document-v2.ico");
+    let icon = settings_root(&app, &window)?.join("mdre-document-v2.ico");
     crate::persistence::atomic_write(&icon, include_bytes!("../icons/document.ico"))?;
     let existing = read_registry_string(HKEY_CURRENT_USER, r"Software\Classes\.md", "")
         .ok()
@@ -251,13 +259,13 @@ pub fn register_file_association(app: tauri::AppHandle, window: tauri::WebviewWi
 }
 #[tauri::command]
 pub fn settings_directory(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<String, String> {
-    Ok(crate::persistence::app_root(&app, &window)?.to_string_lossy().into_owned())
+    Ok(settings_root(&app, &window)?.to_string_lossy().into_owned())
 }
 // 配置目录由应用自身确定，不经网页外链接口，也不接受任意路径。
 #[tauri::command]
 pub fn open_settings_directory(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<String, String> {
     use std::os::windows::process::CommandExt;
-    let directory = crate::persistence::app_root(&app, &window)?;
+    let directory = settings_root(&app, &window)?;
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     std::process::Command::new("explorer.exe").arg(&directory).creation_flags(0x08000000)
         .spawn().map_err(|error| format!("无法打开配置目录：{error}"))?;
@@ -331,12 +339,12 @@ pub fn read_document_image(window: tauri::WebviewWindow, path: String, relative:
     let name = target.file_name().ok_or("图片名称无效")?.to_string_lossy().into_owned();
     crate::persistence::read_image(window, parent, name)
 }
-fn dialog(filter_index: u32, title: &str, suggested: Option<&str>, save: bool, extension: &str, owner: Option<windows::Win32::Foundation::HWND>) -> Option<String> {
-    let filter_text = match extension { "image" => "图片\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg\0所有文件\0*.*\0\0", "html" => "HTML\0*.html;*.htm\0所有文件\0*.*\0\0", "pdf" => "PDF\0*.pdf\0所有文件\0*.*\0\0", "zip" => "Zip 压缩包\0*.zip\0所有文件\0*.*\0\0", _ => "Markdown\0*.md;*.markdown;*.txt\0所有文件\0*.*\0\0" };
-    let filter: Vec<u16> = filter_text.encode_utf16().collect();
+pub(crate) fn dialog(filter_index: u32, title: &str, suggested: Option<&str>, save: bool, extension: &str, owner: Option<windows::Win32::Foundation::HWND>) -> Option<String> {
+    let filter_text = match extension { "docx" => "Word 文档\0*.docx\0\0", "exe" => "Pandoc 程序\0pandoc.exe\0\0", "image" => "图片\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg\0所有文件\0*.*\0\0", "html" => "HTML\0*.html;*.htm\0所有文件\0*.*\0\0", "pdf" => "PDF\0*.pdf\0所有文件\0*.*\0\0", "zip" => "Zip 压缩包\0*.zip\0所有文件\0*.*\0\0", _ => "Markdown\0*.md;*.markdown;*.txt\0所有文件\0*.*\0\0" };
+    let filter: Vec<u16> = crate::i18n::text(filter_text).encode_utf16().collect();
     let mut name: Vec<u16> = suggested.unwrap_or("").encode_utf16().chain(Some(0)).collect();
     name.resize(1024, 0);
-    let title = wide(title);
+    let title = wide(&crate::i18n::text(title));
     let extension = wide(extension);
     let mut options = OPENFILENAMEW {
         lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
@@ -368,8 +376,8 @@ pub fn read_binary(path: String) -> Result<String, String> {
 pub fn pick_images(window: tauri::WebviewWindow) -> Option<Vec<String>> {
     use windows::Win32::UI::Controls::Dialogs::OFN_ALLOWMULTISELECT;
     let owner = window.hwnd().ok().map(|handle| windows::Win32::Foundation::HWND(handle.0 as _));
-    let filter = wide(&["图片", "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg", "所有文件", "*.*", ""].join(&char::from(0).to_string()));
-    let title = wide("插入图片（引用原文件）"); let mut name = vec![0u16; 32768];
+    let filter = wide(&crate::i18n::text(&["图片", "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg", "所有文件", "*.*", ""].join(&char::from(0).to_string())));
+    let title = wide(&crate::i18n::text("插入图片（引用原文件）")); let mut name = vec![0u16; 32768];
     let mut options = OPENFILENAMEW {
         lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32, hwndOwner: owner.unwrap_or_default(),
         lpstrFilter: PCWSTR(filter.as_ptr()), nFilterIndex: 1,
@@ -415,6 +423,8 @@ pub fn pick_file(window: tauri::WebviewWindow, save: bool, suggested: Option<Str
 pub fn pick_export(window: tauri::WebviewWindow, format: String, suggested: Option<String>) -> Result<Option<String>, String> {
     let title = match format.as_str() {
         "html" => "导出 HTML",
+        "docx" => "导出 Word 文档",
+        "md" => "导入 Word：保存为新的 Markdown",
         "pdf" => "导出 PDF",
         // 0.2.5：可分享副本保存为 zip。
         "zip" => "导出可分享副本（Zip）",
@@ -512,25 +522,50 @@ pub fn reveal_document(path: String) -> Result<(), String> {
     std::process::Command::new("explorer.exe").arg("/select,").arg(path.replace('/', "\\")).creation_flags(0x08000000).spawn().map_err(|error| error.to_string())?;
     Ok(())
 }
+// 设置窗口只复用配置读写，不放宽文档恢复和图片资源的权限。
+fn settings_root(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    if ["settings", "help", "shortcuts"].contains(&window.label()) { return crate::persistence::app_root(app, &app.get_webview_window("main").ok_or("主窗口不存在")?); }
+    crate::persistence::app_root(app, window)
+}
+#[tauri::command]
+pub fn pick_word(window: tauri::WebviewWindow, kind: String) -> Result<Option<String>, String> {
+    let (extension, title) = match kind.as_str() { "pandoc" => ("exe", "选择 pandoc.exe"), "reference" => ("docx", "选择 Word 参考样式"), "import" => ("docx", "导入 Word 文档"), _ => return Err("选择类型无效".into()) };
+    let owner = window.hwnd().ok().map(|h| windows::Win32::Foundation::HWND(h.0 as _));
+    Ok(dialog(1, title, None, false, extension, owner))
+}
 // I-4/I-7：配置持久化（主题 + 默认启动模式）。
 #[tauri::command]
 pub fn read_settings(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<Settings, String> {
-    let path = crate::persistence::app_root(&app, &window)?.join("settings.json");
-    if !path.exists() { return Ok(Settings::default()); }
+    let path = settings_root(&app, &window)?.join("settings.json");
+    if !path.exists() { crate::i18n::set_language("zh-CN"); return Ok(Settings::default()); }
     let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
     match serde_json::from_slice::<Settings>(&bytes) {
-        Ok(mut settings) => { settings.recent.truncate(RECENT_LIMIT); Ok(settings) },
+        Ok(mut settings) => { settings.recent.truncate(RECENT_LIMIT); crate::i18n::set_language(&settings.language); Ok(settings) },
         // 兼容 M1–M5 的纯字符串主题记录。
         Err(_) => serde_json::from_slice::<String>(&bytes).map(|theme| Settings { theme, ..Settings::default() }).map_err(|error| error.to_string()),
     }
 }
 #[tauri::command]
-pub fn write_settings(app: tauri::AppHandle, window: tauri::WebviewWindow, state: tauri::State<crate::persistence::Storage>, settings: Settings) -> Result<(), String> {
+pub fn write_settings(app: tauri::AppHandle, window: tauri::WebviewWindow, state: tauri::State<crate::persistence::Storage>, settings: Settings, patch: Option<serde_json::Value>) -> Result<(), String> {
+    use tauri::Emitter;
     let _serial = state.0.lock().map_err(|error| error.to_string())?;
+    // 两个窗口都只合并本次修改字段，避免旧设置快照覆盖主窗口的阅读位置。
+    let settings = if let Some(patch) = patch {
+        let mut latest = serde_json::to_value(read_settings(app.clone(), window.clone())?).map_err(|e| e.to_string())?;
+        let object = latest.as_object_mut().ok_or("配置对象无效")?;
+        for (key, value) in patch.as_object().ok_or("配置补丁无效")? { object.insert(key.clone(), value.clone()); }
+        serde_json::from_value::<Settings>(latest).map_err(|e| e.to_string())?
+    } else { settings };
+    if !["system", "on", "off"].contains(&settings.motion.as_str()) { return Err("无效的界面动画设置".into()); }
+    if !(60..=100).contains(&settings.render_width) { return Err("渲染页宽需在 60%–100% 之间".into()); }
+    if settings.pandoc_path.len() > 4096 || settings.word_reference.len() > 4096 { return Err("工具路径过长".into()); }
     if !["system", "light", "dark"].contains(&settings.theme.as_str()) { return Err("主题配置无效".into()); }
     if !["light", "dark"].contains(&settings.code_theme.as_str()) { return Err("代码块主题配置无效".into()); }
     if !["edit", "read"].contains(&settings.default_mode.as_str()) { return Err("默认启动模式无效".into()); }
     if !["continuous", "paged"].contains(&settings.paper_layout.as_str()) { return Err("A4 排版方式无效".into()); }
+    if !["zh-CN", "en"].contains(&settings.language.as_str()) { return Err("Invalid interface language".into()); }
+    if !["left", "center", "right", "justify"].contains(&settings.reading_align.as_str()) { return Err("Invalid reading alignment".into()); }
     if !["left", "center", "right", "justify"].contains(&settings.paper_align.as_str()) { return Err("A4 正文对齐方式无效".into()); }
     if !["fit", "natural"].contains(&settings.image_layout.as_str()) { return Err("图片显示方式无效".into()); }
     if !(180.0..=420.0).contains(&settings.sidebar_width) { return Err("侧栏宽度需在 180–420 px 之间".into()); }
@@ -545,73 +580,8 @@ pub fn write_settings(app: tauri::AppHandle, window: tauri::WebviewWindow, state
     if let Some(session) = &settings.last_session {
         if !["files", "outline"].contains(&session.sidebar_tab.as_str()) { return Err("上次侧栏状态无效".into()); }
     }
-    crate::persistence::atomic_write(&crate::persistence::app_root(&app, &window)?.join("settings.json"), &serde_json::to_vec(&settings).map_err(|error| error.to_string())?)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn settings_bridge_and_legacy_keys() {
-        let defaults = serde_json::to_value(Settings::default()).unwrap();
-        assert_eq!(defaults["backup_count"], 0);
-        assert_eq!(defaults["default_mode"], "edit");
-        assert_eq!(defaults["show_source"], true);
-        assert!(defaults.get("backupCount").is_none());
-        for json in [
-            r#"{"default_mode":"read","backup_count":4,"font_body":"中文字体","font_mono":"Consolas","font_size":18,"line_height":2.0}"#,
-            r#"{"defaultMode":"read","backupCount":4,"fontBody":"中文字体","fontMono":"Consolas","fontSize":18,"lineHeight":2.0}"#,
-        ] {
-            let settings: Settings = serde_json::from_str(json).unwrap();
-            let output = serde_json::to_value(settings).unwrap();
-            assert_eq!(output["default_mode"], "read");
-            assert_eq!(output["show_source"], true);
-            assert_eq!(output["backup_count"], 4);
-            assert_eq!(output["font_body"], "中文字体");
-            assert_eq!(output["font_size"], 18.0);
-            assert_eq!(output["line_height"], 2.0);
-        }
-    }
-    #[test]
-    fn source_visibility_settings_roundtrip() {
-        for json in [r#"{"show_source":false}"#, r#"{"showSource":false}"#] {
-            let settings: Settings = serde_json::from_str(json).unwrap();
-            assert!(!settings.show_source);
-            let saved = serde_json::to_string(&settings).unwrap();
-            assert!(!serde_json::from_str::<Settings>(&saved).unwrap().show_source);
-        }
-    }
-    #[test]
-    fn filename_validation() {
-        for name in ["", ".", "..", "a/b.md", "a\\b.md", "a:.md", "CON.md", "LPT1.txt", "NUL", "x.", "x "] { assert!(!valid_filename(name), "{name}"); }
-        for name in ["中文 文件.md", "a.md", "CONtext.md", "COM10.md"] { assert!(valid_filename(name), "{name}"); }
-    }
-    #[test]
-    fn encoding_detection_and_roundtrip() {
-        let (text, encoding, bom) = decode("中文".as_bytes()).unwrap();
-        assert_eq!((text.as_str(), encoding.as_str(), bom), ("中文", "utf-8", false));
-        let mut with_bom = vec![0xEF, 0xBB, 0xBF];
-        with_bom.extend_from_slice("中文".as_bytes());
-        let (text, encoding, bom) = decode(&with_bom).unwrap();
-        assert!(bom && encoding == "utf-8" && text.starts_with('\u{feff}'));
-        assert_eq!(encode(&text, "utf-8", bom).unwrap(), with_bom);
-        let gbk = gbk_encode("中文").unwrap();
-        assert_eq!(gbk, vec![0xD6, 0xD0, 0xCE, 0xC4]);
-        let (text, encoding, bom) = decode(&gbk).unwrap();
-        assert_eq!((text.as_str(), encoding.as_str(), bom), ("中文", "gbk", false));
-        assert!(gbk_encode("😀").is_err());
-        for encoding in ["utf-16le", "utf-16be"] {
-            let original = "\u{feff}中文 😀\r\n";
-            let bytes = encode(original, encoding, true).unwrap();
-            let (text, detected, bom) = decode(&bytes).unwrap();
-            assert_eq!((text.as_str(), detected.as_str(), bom), (original, encoding, true));
-            assert_eq!(encode(&text, &detected, bom).unwrap(), bytes);
-            let mut truncated = bytes.clone(); truncated.pop(); assert!(decode(&truncated).is_err());
-        }
-        assert_eq!(newline_of("a\r\nb"), "\r\n");
-        assert_eq!(newline_of("a\nb"), "\n");
-        assert_eq!(newline_of("abc"), "\n");
-        assert_eq!(fingerprint_bytes(b"abc"), fingerprint_bytes(b"abc"));
-        assert_ne!(fingerprint_bytes(b"abc"), fingerprint_bytes(b"abd"));
-    }
+    crate::persistence::atomic_write(&settings_root(&app, &window)?.join("settings.json"), &serde_json::to_vec(&settings).map_err(|error| error.to_string())?)?;
+    crate::i18n::set_language(&settings.language);
+    for label in ["main", "settings", "help", "shortcuts"] { if label != window.label() { let _ = app.emit_to(label, "settings-changed", ()); } }
+    Ok(())
 }

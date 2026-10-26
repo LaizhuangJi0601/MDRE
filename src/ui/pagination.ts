@@ -23,12 +23,12 @@ export function paperPagination() {
         sheets.contentEditable = 'false'; sheets.setAttribute('aria-hidden', 'true');
         view.dom.before(canvas); canvas.append(stage); stage.append(sheets, view.dom);
       }
-      let frame = 0, destroyed = false, measuring = false, observedWidth = 0;
+      let frame = 0, destroyed = false, measuring = false, observedWidth = 0, composing = false, compositionEpoch = 0;
       const schedule = () => { if (!frame && !destroyed && !measuring) frame = requestAnimationFrame(layout); };
       const set = (decorations: Decoration[]) => view.dispatch(view.state.tr.setMeta(key, DecorationSet.create(view.state.doc, [...decorations])));
       function layout() {
         frame = 0;
-        if (destroyed || view.composing) return;
+        if (destroyed || view.composing || composing || document.body.classList.contains('ime-active')) return;
         measuring = true;
         const scroll = { top: pane.scrollTop, left: pane.scrollLeft };
         try {
@@ -148,7 +148,12 @@ export function paperPagination() {
       }
       pane.addEventListener('mdre:paper-layout', schedule);
       view.dom.addEventListener('load', schedule, true);
-      view.dom.addEventListener('compositionend', schedule);
+      // 浏览器 compositionend 之后还有最后的 input、模型提交和 DOM 观察器刷新。
+      // 此时清除分页装饰会触碰组合文字，必须等当前组合完全稳定后再测量。
+      const compositionStart=()=>{composing=true;compositionEpoch++;cancelAnimationFrame(frame);frame=0;};
+      const compositionEnd=()=>{const epoch=compositionEpoch;requestAnimationFrame(()=>requestAnimationFrame(()=>{if(destroyed||epoch!==compositionEpoch)return;composing=false;schedule();}));};
+      view.dom.addEventListener('compositionstart', compositionStart, true);
+      view.dom.addEventListener('compositionend', compositionEnd, true);
       const resize = new ResizeObserver(entries => { const width = entries[0].contentRect.width; if (width !== observedWidth) { observedWidth = width; schedule(); } });
       resize.observe(pane);
       const appearance = new MutationObserver(schedule); appearance.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
@@ -157,7 +162,7 @@ export function paperPagination() {
       return { update(next: EditorView, previous) { if (!next.state.doc.eq(previous.doc) || key.getState(next.state) !== key.getState(previous)) schedule(); }, destroy() {
         destroyed = true; cancelAnimationFrame(frame); resize.disconnect(); appearance.disconnect();
         pane.removeEventListener('mdre:paper-layout', schedule); view.dom.removeEventListener('load', schedule, true);
-        view.dom.removeEventListener('compositionend', schedule); document.fonts.removeEventListener('loadingdone', schedule);
+        view.dom.removeEventListener('compositionstart', compositionStart, true); view.dom.removeEventListener('compositionend', compositionEnd, true); document.fonts.removeEventListener('loadingdone', schedule);
         // 重建 EditorState 时插件视图也会重建；保留 DOM 层级，避免连续输入丢失焦点。
         queueMicrotask(() => { if (view.isDestroyed) canvas.remove(); });
       } };

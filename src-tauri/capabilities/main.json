@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-window",
   "description": "仅本地编辑窗口拥有应用能力；隔离导出窗口不在此列表。",
-  "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-close", "core:window:allow-destroy", "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-start-dragging"]
+  "windows": ["main", "settings", "help", "shortcuts"],
+  "permissions": ["core:default", "core:window:allow-set-title", "core:window:allow-close", "core:window:allow-destroy", "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-start-dragging"]
 }

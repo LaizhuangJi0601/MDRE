@@ -1,3 +1,9 @@
+import {setupLanguage,t} from './i18n/ui';
+import { openShortcuts } from './ui/shortcuts';
+import {setupMotion,applyMotion,departSurface,highlightTarget} from './ui/motion';
+import { setupExternalSync } from './external-sync';
+import { batchHeading, batchConvert } from './batch';
+import { setupReadingWidth, setupWord } from './v026';
 import { setupTableSelection } from './ui/table-selection';
 import { setupViewPresets } from './ui/view-presets';
 import { fontSizes } from './ui/font-size';
@@ -47,12 +53,12 @@ import { SaveQueue, autosaveAll, directoryOf, discardRecovery, discardRecoveryAt
 import { loadSettings, saveSettings, settings, shortcutOf, matchShortcut, shortcutCommands, RECENT_LIMIT } from './persistence/settings';
 import { renderDiagram, setDiagramTheme } from './render/mermaid';
 import { footnoteDefsView, footnoteRefView, frontMatterView, mathBlockView, mathInlineView, tocView } from './ui/atom';
-import hljs from 'highlight.js';
+import hljs from './render/highlight';
 import 'katex/dist/katex.min.css';
 import { inlineEditor } from './ui/inline-editor';
 import { diagramView } from './ui/diagram-view';
 import { setupColorPicker } from './ui/color-picker';
-import { setupPreferences } from './ui/preferences';
+
 import { colorTransaction } from './ui/color-format';
 import { contextMenu, type ContextItem } from './ui/context-menu';
 import { positionDialog } from './ui/dialogs';
@@ -72,11 +78,15 @@ $('sidebar-title').setAttribute('aria-label', '侧栏文件操作');
 const closestOf = <T extends Element = Element>(target: EventTarget | null, selector: string): T | null =>
   target instanceof Element ? target.closest<T>(selector) : null;
 const settingsRead = await loadSettings().catch(() => null);
+setupLanguage();
+setupMotion();
 const paper = setupPaper($('render'), $('paper-toggle') as HTMLButtonElement, $('paper-zoom'), reason => error(reason));
 const sidebar = setupSidebar(reason => error(reason));
 let sourceVisible = settings().last_view?.source ?? settings().show_source, sourceDefault = settings().show_source;
 const workspace = new Workspace();
+let layoutRestore=0, readingInteraction=0;
 let restoringWorkspace = true;
+let externalSync: Awaited<ReturnType<typeof setupExternalSync>> | undefined;
 const workspaceRestoreErrors: string[] = [];
 const filesPanel = setupFiles({ open: openPath, activate: id => action(() => switchTo(id)), fail: reason => error(reason), reveal: () => { toggleOutline(false); status(); }, opened: updateRecentFolder, changed: () => { void rememberWorkspace().catch(reason => error(reason)); } });
 const recoveryRead = await readRecovery();
@@ -134,7 +144,7 @@ function textCounts(doc: DocumentSession) {
 function status() {
   const doc = workspace.active;
   const available = !!doc && !doc.welcome;
-  document.querySelectorAll<HTMLButtonElement>('button[data-command], #format-toolbar button, .view-tools button, #mode, #save, #save-as, #close-tab, #html, #pdf-open, #backup').forEach(button => { button.disabled = !available; });
+  document.querySelectorAll<HTMLButtonElement>('button[data-command], #format-toolbar button, .view-tools button, #mode, #save, #save-as, #close-tab, #html, #pdf-open, #backup, #word-export, #status-word-export, #share-copy, #status-share-copy').forEach(button => { button.disabled = !available; });
   document.querySelectorAll<HTMLButtonElement>('#outline-toggle, [data-command="outline-toggle"], [data-command^="view-"], [data-command="toolbar-toggle"]').forEach(button => button.disabled = false);
   $<HTMLButtonElement>('close-tab').disabled = !doc;
   if (!available) { syncTabs(); document.title = 'MDRE'; $('window-title').textContent = 'MDRE'; $('status-text').textContent = '欢迎使用 MDRE'; for (const id of ['status-counts', 'status-encoding', 'status-position', 'status-path', 'recovery-status']) $(id).textContent = ''; $('render-timing').hidden = true; return; }
@@ -175,7 +185,7 @@ function syncTabs() {
   filesPanel.sync([...workspace.documents.values()], workspace.activeId);
   const tabs = $('tabs');
   const existing = new Map(Array.from(tabs.querySelectorAll<HTMLButtonElement>('[data-tab]'), child => [child.dataset.tab!, child]));
-  for (const [id, button] of existing) if (!workspace.documents.has(id)) button.remove();
+  for (const [id, button] of existing) if (!workspace.documents.has(id)) { departSurface(button); button.remove(); }
   let index = 0;
   for (const [id, session] of workspace.documents) {
     const button = existing.get(id) ?? tabElement(id, session);
@@ -186,8 +196,8 @@ function syncTabs() {
   tabs.append($('new-welcome'));
 }
 function updateTab(button: HTMLButtonElement, id: string, session: DocumentSession) {
-  button.querySelector('.tab-label')!.textContent = session.title;
-  button.querySelector('.tab-close')?.setAttribute('aria-label', '关闭 ' + session.title);
+  button.querySelector('.tab-label')!.textContent = session.welcome?t('欢迎页'):session.title;
+  button.querySelector('.tab-close')?.setAttribute('aria-label', t('关闭') + ' ' + session.title);
   button.querySelector('.tab-state')!.textContent = tabState(session);
   button.classList.toggle('active', id === workspace.activeId); button.setAttribute('aria-current', String(id === workspace.activeId));
   // 多文件时标签栏会横向溢出：活动标签必须滚入可视区，否则切到后面的文件会像“被遮挡”。
@@ -201,7 +211,7 @@ function tabElement(id: string, session: DocumentSession) {
   button.innerHTML = icon('markdown'); button.dataset.tab = id; button.draggable = true;
   const label = document.createElement('span'); label.className = 'tab-label'; label.textContent = session.title; button.append(label);
   // 关闭按钮紧跟文件名：标签被压缩时先省略文件名，序号与关闭入口保持可用。
-  const close = document.createElement('span'); close.className = 'tab-close'; close.textContent = '×'; close.title = '关闭标签 (Ctrl+W)'; close.setAttribute('role', 'button'); close.setAttribute('aria-label', '关闭 ' + session.title); close.tabIndex = 0; close.draggable = false;
+  const close = document.createElement('span'); close.className = 'tab-close'; close.textContent = '×'; close.title = '关闭标签 (Ctrl+W)'; close.setAttribute('role', 'button'); close.setAttribute('aria-label', t('关闭') + ' ' + session.title); close.tabIndex = 0; close.draggable = false;
   close.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); action(() => closeTab(id)); } };
   close.ondragstart = event => { event.preventDefault(); event.stopPropagation(); };
   close.onmousedown = event => { if (event.button === 0) { event.preventDefault(); event.stopPropagation(); } };
@@ -548,8 +558,10 @@ function schedulePreview(delay = 150, force = false) {
   workspace.active.refreshModel();
   parseTimer = setTimeout(() => applyPreview(ticket), delay);
 }
+let motionDocument='', motionReadOnly=false;
 function showDocument() {
   const doc = workspace.active;
+  if(doc && (motionDocument!==doc.id || motionReadOnly!==doc.readOnly)){requestAnimationFrame(()=>window.dispatchEvent(new Event('mdre:document-motion')));motionDocument=doc.id;motionReadOnly=doc.readOnly;}
   $('welcome').hidden = !!doc && !doc.welcome; $('panes').hidden = false;
   $('panes').classList.toggle('welcome-state', !doc || doc.welcome);
   if (!doc || doc.welcome) { $('outline-list').replaceChildren(); $('outline-count').textContent = ''; $('outline-empty').hidden = false; }
@@ -559,9 +571,19 @@ function showDocument() {
   $('format-toolbar').hidden = false; $('replace-controls').hidden = doc.readOnly;
   $('render-title').textContent = '渲染页面';
   mirrorSource(); if (doc.modelStale) schedulePreview(); else applyPreview(doc.ticket('parse')); restoreSelections(); restoreView(doc, render, source); status(); scrollSync?.reset();
+  restoreAfterLayout(doc);
   // 从隐藏源码栏恢复后，等 CodeMirror 完成实际行高测量，再按渲染锚点同步。
   source.requestMeasure({ read: () => doc.ticket('layout'), write: ticket => { if (workspace.accept(ticket)) scrollSync?.reset(); } });
   notifyDocument(doc, 'show');
+}
+for(const event of ['wheel','pointerdown','keydown'])document.addEventListener(event,()=>{readingInteraction++;},true);
+function restoreAfterLayout(doc:DocumentSession){
+  const anchor=doc.readingAnchor;if(!anchor)return;const request=++layoutRestore,interaction=readingInteraction;
+  const images=[...render.dom.querySelectorAll('img')].map(image=>image.decode().catch(()=>{}));
+  void Promise.race([Promise.all([document.fonts.ready,...images]),new Promise(resolve=>setTimeout(resolve,5000))]).then(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))).then(()=>{
+    if(request!==layoutRestore||interaction!==readingInteraction||workspace.active!==doc)return;
+    doc.readingAnchor=anchor;restoreView(doc,render,source);scrollSync?.reset();
+  });
 }
 // 源码栏可见性不改变文档、阅读模式或撤销历史。
 function applySourceVisibility() {
@@ -651,14 +673,25 @@ async function askEncoding(doc: DocumentSession, encoding: string) {
   if (choice === 'convert') { doc.encoding = 'utf-8'; doc.bom = doc.source.startsWith('\uFEFF'); }
 }
 // E.1/E-2：同一规范化路径重复打开时激活既有文档，不产生第二个标签。
+const pendingOpens = new Map<string, Promise<DocumentSession>>();
 async function openPath(path: string, restoring = false): Promise<DocumentSession> {
+  const key=pathKey(path), pending=pendingOpens.get(key);
+  if(pending){const doc=await pending;switchTo(doc.id);return doc;}
+  const opening=openUniquePath(path,restoring);pendingOpens.set(key,opening);
+  try{return await opening;}finally{if(pendingOpens.get(key)===opening)pendingOpens.delete(key);}
+}
+async function openUniquePath(path: string, restoring = false): Promise<DocumentSession> {
   const existing = [...workspace.documents.values()].find(doc => samePath(doc.path, path));
   if (existing) { switchTo(existing.id); if (!restoring) await updateRecent(existing.path); return existing; }
   const file = await readTextFile(path);
+  const opened=[...workspace.documents.values()].find(doc=>samePath(doc.path,file.path));
+  if(opened){switchTo(opened.id);return opened;}
   const doc = new DocumentSession(crypto.randomUUID(), file.text, {
     title: path.replace(/^.*[\\/]/, ''), path: file.path, encoding: file.encoding, bom: file.bom,
     diskFingerprint: file.fingerprint, savedText: file.text,
   });
+  const position=settings().reading_positions[pathKey(file.path)];
+  if(position){doc.readingAnchor={block:'',source:position.source,offset:position.offset};doc.sourceScroll={top:position.sourceTop,left:position.sourceLeft};}
   workspace.add(doc); switchTo(doc.id);
   if (restoring) doc.readOnly = settings().default_mode === 'read';
   else await updateRecent(file.path);
@@ -671,12 +704,13 @@ async function openViaPicker() { const picked = await pickFile(false); if (picke
 // 空白文档按序号命名（未命名.md、未命名 2.md…），避免多标签标题完全一样而无法区分。
 function untitledTitle(): string {
   const used = new Set([...workspace.documents.values()].map(item => item.title));
-  if (!used.has('未命名.md')) return '未命名.md';
+  const base=t('未命名');
+  if (!used.has(`${base}.md`)) return `${base}.md`;
   for (let index = 2; index < 1000; index++) {
-    const candidate = `未命名 ${index}.md`;
+    const candidate = `${base} ${index}.md`;
     if (!used.has(candidate)) return candidate;
   }
-  return `未命名 ${Date.now()}.md`;
+  return `${base} ${Date.now()}.md`;
 }
 function newBlankTab(): DocumentSession {
   if (workspace.active?.welcome) {
@@ -699,6 +733,7 @@ async function saveDocument(doc: DocumentSession, as: boolean, explicitPath?: st
   if (doc.composition) throw new Error('请先提交组合输入再保存。');
   const target = explicitPath ?? (as || !doc.path ? await pickFile(true, doc.path ?? doc.title) : doc.path);
   if (!target) return false;
+  if (!as && doc.saveStatus==='conflict') { const choice=await conflictChoice(doc);if(choice==='save-as')return saveDocument(doc,true);if(choice==='reload')await reloadFromDisk(doc);return false; }
   if ([...workspace.documents.values()].some(other => other.id !== doc.id && samePath(other.path, target))) throw new Error('目标文件已在其他标签打开，请先关闭该标签或选择其他文件名。');
   try {
     await saveQueue.save(doc, { path: target, overwrite: as || !doc.path, choice: { onMissingResources: async missing => (await missingChoice(missing)) === 'proceed' } });
@@ -773,6 +808,7 @@ function jumpToOutline(entry: OutlineEntry) {
     if (element) {
       const paneRect = pane.getBoundingClientRect(), rect = element.getBoundingClientRect();
       pane.scrollTop += rect.top - paneRect.top - 6;
+      highlightTarget(element);
       if (rect.right <= paneRect.left || rect.left >= paneRect.right) pane.scrollLeft += rect.left - paneRect.left - 6;
     }
     scrollSync?.reset(); outlineActive = null; markOutline();
@@ -847,6 +883,7 @@ async function closeWindow() {
       } else { doc.discarded = true; if (isTauri()) await discardRecovery(doc.id).catch(() => {}); }
     }
     if (workspace.documents.has(activeBeforeClose)) switchTo(activeBeforeClose);
+    if(isTauri())await invoke('prepare_settings_shutdown');
     await rememberWorkspace(true);
     await finishClose();
   } finally { closing = false; }
@@ -906,7 +943,7 @@ function joinActive() {
   const range = activeRange(), block = workspace.active.model.blocks.find(b => b.parent === null && range.from >= b.pos + 1 && range.from <= b.pos + b.node.nodeSize - 1);
   structural(joinParagraph(workspace.active.model, range.from), { from: block!.pos - 1, to: block!.pos - 1 });
 }
-function headingActive(level: number) { const range = activeRange(); structural(setHeading(workspace.active.model, range.from, level), range); }
+function headingActive(level: number) { const range = activeRange(); structural(batchHeading(workspace.active.model, range, level), undefined, workspace.active.selection.active); }
 function markActive(type: MarkType, attrs?: Record<string, unknown>, colorValue?: string | null) {
   const doc = workspace.active, range = activeRange(), origin = doc.selection.active;
   if (render.state.selection instanceof NodeSelection) throw new Error('请在可编辑文字内选择格式范围。');
@@ -930,6 +967,7 @@ function containerAtPos(model: Model, pos: number, type: string): Block | undefi
 }
 function convertActive(kind: BlockKind, options?: { level?: number; info?: string }) {
   const doc = workspace.active, origin = doc.selection.active, range = activeRange();
+  if (range.from !== range.to) { structural(batchConvert(doc.model, range, kind, options), undefined, origin); return; }
   const block = blockAtRange(doc.model, range);
   if (!block) throw new Error('请把光标放在段落或标题内。');
   if (block.type === 'table_cell') throw new Error('标题与列表作用于整段；表格内可直接输入并使用行内格式。');
@@ -1205,6 +1243,7 @@ const escapeHtml = (text: string) => text.replace(/[&<>]/g, char => char === '&'
 function highlightFragment(text: string, language: string | null): string {
   return language && hljs.getLanguage(language) ? hljs.highlight(text, { language }).value : escapeHtml(text);
 }
+window.addEventListener('mdre:highlight-ready',()=>{if($<HTMLDialogElement>('dialog').open)highlightDraft();});
 function highlightDraft() {
   const textarea = $<HTMLTextAreaElement>('draft'), layer = $('draft-highlight'), scroller = layer.parentElement!;
   const value = textarea.value;
@@ -1344,20 +1383,25 @@ if (import.meta.env.DEV) {
 }
 $<HTMLTextAreaElement>('draft').oninput = highlightDraft;
 $<HTMLTextAreaElement>('draft').onscroll = highlightDraft;
+let compositionEpoch=0;
 function compositionStart(origin: 'source' | 'render') {
+  compositionEpoch++;
   const session = workspace.active; if (!session || session.readOnly) return;
   session.selection.active = origin; session.composition = origin;
+  if(compositionBase?.session===session)return;
   compositionBase = { session, ticket: session.ticket(`composition-${origin}`), model: session.model, selection: structuredClone(session.selection) }; status();
 }
 function compositionEnd() {
+  const epoch=compositionEpoch;
   // 浏览器在 compositionend 后发送最后一笔 input/事务。
   setTimeout(() => action(() => {
     const base = compositionBase; if (!base) return;
+    if(epoch!==compositionEpoch)return;
     const doc = base.session;
+    const origin = doc.composition;
     let committed = false;
     try {
     if (!doc.current(base.ticket)) throw new Error('组合输入的基准版本已变化。');
-    const origin = doc.composition;
     if (origin === 'render') {
       const result = renderedEdit(base.model, render.state.doc);
       doc.commit(base.ticket, result.edit, { ...selection(), active: 'render' }, result.model);
@@ -1372,7 +1416,11 @@ function compositionEnd() {
       compositionBase = null; doc.composition = null;
       if (!committed) doc.selection = base.selection;
       if (pendingMode && committed) doc.readOnly = !doc.readOnly;
-      pendingMode = false; workspace.compositionEnded(); queuedRefresh = false; showDocument();
+      const switchLayout=pendingMode || !!workspace.pendingSwitch;
+      pendingMode = false; workspace.compositionEnded(); queuedRefresh = false;
+      if(switchLayout || !committed)showDocument();
+      else if(origin==='render') { mirrorSource(); previewTicket=doc.ticket('composition'); doc.renderRevision=doc.revision; status(); notifyDocument(doc,'preview'); }
+      else { schedulePreview(0); status(); }
     }
   }), 0);
 }
@@ -1998,40 +2046,8 @@ function setupTypographyControls() {
 }
 // S-47：快捷键在配置文件中自定义；对话框只做查看与重绑，不写额外格式。
 function openShortcutDialog() {
-  const dialog = $<HTMLDialogElement>('shortcut-dialog');
-  const body = $('shortcut-list');
-  if (!dialog || !body) throw new Error(`缺少快捷键弹窗节点：dialog=${!!dialog} list=${!!body}`);
-  const current = settings();
-  body.replaceChildren(...shortcutCommands.map(command => {
-    const row = document.createElement('div'); row.className = 'shortcut-row';
-    const label = document.createElement('label'); label.textContent = command.label; label.htmlFor = `shortcut-${command.id}`;
-    const input = document.createElement('input'); input.id = `shortcut-${command.id}`; input.value = current.shortcuts[command.id] ?? command.fallback;
-    input.placeholder = command.fallback || '未绑定'; input.setAttribute('aria-label', `${command.label} 快捷键`);
-    input.onkeydown = event => {
-      event.preventDefault();
-      if (event.key === 'Escape') { input.value = ''; return; }
-      if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
-      const parts: string[] = [];
-      if (event.ctrlKey) parts.push('Ctrl');
-      if (event.shiftKey) parts.push('Shift');
-      if (event.altKey) parts.push('Alt');
-      parts.push(event.key.length === 1 ? event.key.toUpperCase() : event.key);
-      input.value = parts.join('+');
-    };
-    row.append(label, input); return row;
-  }));
-  $('shortcut-save').onclick = () => action(async () => {
-    const shortcuts: Record<string, string> = {};
-    for (const command of shortcutCommands) {
-      const value = $<HTMLInputElement>(`shortcut-${command.id}`).value.trim();
-      if (value && value !== command.fallback) shortcuts[command.id] = value;
-    }
-    await saveSettings({ shortcuts });
-    renderMenuShortcuts();
-    closeFloating(dialog);
-    $('status-text').textContent = '快捷键已更新';
-  });
-  openFloating(dialog);
+  if(isTauri()){void invoke('open_aux_window',{kind:'shortcuts'}).catch(error);return;}
+  openShortcuts(openFloating,closeFloating,renderMenuShortcuts,error);
 }
 // 菜单里的快捷键提示随配置更新。
 function renderMenuShortcuts() {
@@ -2046,9 +2062,14 @@ function renderMenuShortcuts() {
 function rememberWorkspace(force = false): Promise<void> {
   if (!isTauri() || restoringWorkspace || (closing && !force)) return Promise.resolve();
   const files = [...workspace.documents.values()].filter(doc => !doc.welcome && doc.path).map(doc => doc.path!);
+  if(workspace.active&&!workspace.active.welcome)captureView(workspace.active,render,source);
+  const positions={...settings().reading_positions};
+  for(const doc of workspace.documents.values())if(doc.path&&doc.readingAnchor){positions[pathKey(doc.path)]={source:doc.readingAnchor.source,offset:doc.readingAnchor.offset,sourceTop:doc.sourceScroll.top,sourceLeft:doc.sourceScroll.left};}
+  const reading_positions=Object.fromEntries(Object.entries(positions).slice(-200));
+  void externalSync?.update().catch(error);
   const last_session = { folder: filesPanel.root, files, active_file: workspace.active?.path ?? null, sidebar_visible: !$('outline-panel').hidden, sidebar_tab: filesPanel.fileView ? 'files' as const : 'outline' as const };
-  if (!force && JSON.stringify(last_session) === JSON.stringify(settings().last_session)) return Promise.resolve();
-  return saveSettings({ last_session });
+  if (!force && JSON.stringify(last_session) === JSON.stringify(settings().last_session) && JSON.stringify(reading_positions)===JSON.stringify(settings().reading_positions)) return Promise.resolve();
+  return saveSettings({ last_session, reading_positions });
 }
 async function restoreWorkspace() {
   const last = settings().last_session, recoveredActive = workspace.activeId;
@@ -2153,7 +2174,12 @@ if (isTauri()) {
 }
 toggleOutline(false);
 showDocument();
+if(isTauri()) externalSync=await setupExternalSync({workspace,folder:()=>filesPanel.root,refreshFolder:()=>filesPanel.refresh(),capture:()=>{if(workspace.active)captureView(workspace.active,render,source);},show:showDocument,status,saveCopy:doc=>saveDocument(doc,true),fail:error});
 await restoreWorkspace();
+void externalSync?.update().catch(error);
+let readingTimer:ReturnType<typeof setTimeout>|undefined;
+const rememberReading=()=>{clearTimeout(readingTimer);readingTimer=setTimeout(()=>void rememberWorkspace().catch(error),700);};
+$('render').addEventListener('scroll',rememberReading,{passive:true});source.scrollDOM.addEventListener('scroll',rememberReading,{passive:true});
 if (recoveryRead.errors.length) error(recoveryRead.errors.join('\n'));
 if (isTauri()) recovery.start();
 if (!settingsRead) error('读取配置失败，已使用默认主题与启动模式。');
@@ -2176,7 +2202,7 @@ if (isTauri()) {
   await action(consumeLaunch);
   // 第二次启动：插件唤醒窗口并排队路径；拿到焦点后立即取走。
   try {
-    await current.onFocusChanged(({ payload: focused }) => { if (focused) void action(consumeLaunch); });
+    await current.onFocusChanged(({ payload: focused }) => { if (focused) { void action(consumeLaunch);void externalSync?.refresh().catch(error); } });
     await current.onResized(() => void action(consumeLaunch));
   } catch (reason) { error(reason); }
   try {
@@ -2191,7 +2217,8 @@ const views = setupViewPresets({
 // S-45/S-47/S-42：字体与快捷键控件、最近打开列表、菜单快捷键提示。
 try {
   setupTypographyControls();
-  setupPreferences({ open: openFloating, close: closeFloating, fonts: fontChoices, applied: () => {
+  const applyPreferences=()=>{
+    applyMotion();
     $<HTMLSelectElement>('theme').value = settings().theme;
     $<HTMLSelectElement>('default-mode').value = settings().default_mode;
     applyTypography(); setupTypographyControls(); splitControl.resize(settings().split); paper.refresh(); sidebar.refresh(); refreshTheme(); renderMenuShortcuts();
@@ -2201,10 +2228,19 @@ try {
     }
     views.restore();
     $('status-text').textContent = '设置已保存';
-  } });
+    window.dispatchEvent(new Event('mdre:settings-applied'));
+  };
+  let preferencesReady:Promise<unknown>|undefined;
+  const ensurePreferences=()=>preferencesReady??=import('./ui/preferences').then(module=>module.setupPreferences({open:openFloating,close:closeFloating,fonts:fontChoices,applied:applyPreferences}));
+  $('settings-open').onclick=()=>{if(isTauri())void invoke('open_settings_window').catch(error);else void ensurePreferences().then(()=>$('settings-open').click()).catch(error);};
+  $('help-menu').onclick=()=>{if(isTauri()){void invoke('open_aux_window',{kind:'help'}).catch(error);return;}void ensurePreferences().then(()=>$('help-menu').click()).catch(error);};
+  if(isTauri()){const {listen}=await import('@tauri-apps/api/event');await listen('settings-changed',async()=>{await loadSettings();applyPreferences();},{target:'main'});}
+
   renderRecent();
   renderMenuShortcuts();
 } catch (reason) { console.error('设置界面初始化失败', reason); throw reason; }
+setupReadingWidth(paper, reason => error(reason));
+setupWord({ workspace, flush: () => flushInline(), fail: error, message: text => { $('status-text').textContent = text; }, open: async (path: string) => { await openPath(path); } });
 // 原型验收桥：只暴露当前应用内的文档状态与统一 IPC 入口，不参与导出页面。
 Object.assign(window, { mdre: { workspace, source, render, recovery, schedulePreview, exportPdf, exportHtml, openDraft, openFloating, closeFloating, showDocument, staticHtml, switchTo, resolveImage, saveQueue, openPath, saveDocument, saveTo, closeTab, newBlankTab, cycleTab, autosaveNow, closeWindow, invoke, v025: (name: string, ...args: unknown[]) => callV025Api(name, ...args), exportShareCopy: (path?: string) => callV025Api('exportShareCopy', path), closeRequest: () => getCurrentWindow().close(), get allowClose() { return allowClose; }, get composing() { return compositionBase !== null || !!workspace.active?.composition; }, filesPanel, paper, sidebar, get queuedRefresh() { return queuedRefresh; } } });
 if (workspaceRestoreErrors.length) error(workspaceRestoreErrors.join('\n'));
