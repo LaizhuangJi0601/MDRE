@@ -19,7 +19,7 @@ export function restoreView(doc: DocumentSession, render: EditorView, source: CM
   source.scrollDOM.scrollTop = doc.sourceScroll.top; source.scrollDOM.scrollLeft = doc.sourceScroll.left;
   const anchor = doc.readingAnchor; if (!anchor) return;
   const leaves = doc.model.blocks.filter(b => b.node.isTextblock || b.node.isAtom).sort((a, b) => a.pos - b.pos);
-  const block = leaves.find(b => b.id === anchor.block && b.from === anchor.source) ?? leaves.find(b => b.from >= anchor.source);
+  const block = leaves.find(b => b.id === anchor.block && b.from === anchor.source) ?? leaves.find(b => b.from >= anchor.source) ?? leaves.at(-1);
   const dom = block && render.nodeDOM(block.pos);
   if (dom instanceof HTMLElement) {
     const pane = render.dom.closest<HTMLElement>('#render')!;

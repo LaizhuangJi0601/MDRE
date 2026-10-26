@@ -3,12 +3,12 @@ const configured = new WeakSet<HTMLDialogElement>();
 export function positionDialog(dialog: HTMLDialogElement) {
   if (!configured.has(dialog)) {
     configured.add(dialog);
-    const title = dialog.querySelector<HTMLElement>('h3')!;
+    const title = dialog.querySelector<HTMLElement>('h3');
     const content = document.createElement('div'); content.className = 'dialog-content';
     const actions = dialog.querySelector('.dialog-actions');
     for (const child of [...dialog.childNodes]) if (child !== title && child !== actions) content.append(child);
-    title.after(content);
-    title.classList.add('dialog-title'); title.tabIndex = 0; title.title = '拖动标题调整位置；方向键移动';
+    if(title) { title.after(content); title.classList.add('dialog-title'); title.tabIndex = 0; title.title = '拖动标题调整位置；方向键移动'; }
+    else dialog.prepend(content);
     const resize = document.createElement('button'); resize.className = 'dialog-resize'; resize.type = 'button';
     resize.setAttribute('aria-label', '调整弹窗大小'); resize.title = '拖动调整大小；方向键调整'; dialog.append(resize);
     const fit = () => {
@@ -31,6 +31,7 @@ export function positionDialog(dialog: HTMLDialogElement) {
       }
     };
     for (const [control, sizing] of [[title, false], [resize, true]] as const) {
+      if(!control)continue;
       const handle: HTMLElement = control;
       handle.addEventListener('pointerdown', event => {
         if (event.button !== 0) return;

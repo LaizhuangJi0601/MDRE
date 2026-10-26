@@ -36,4 +36,3 @@ export async function renderDiagramImage(code: string, prefix: string, theme: 'd
   return url ? `<img class="diagram"${dimensions} src="${url}" alt="${escapeAlt(code)}">` : '';
 }
 const escapeAlt = (text: string) => text.replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]!);
-

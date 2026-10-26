@@ -78,4 +78,3 @@ export const icon = (name: Icon) => `<svg viewBox="0 0 24 24" fill="none" stroke
 export function iconButton(id: string, name: Icon, label: string, shortcut = '') {
   return `<button id="${id}" class="icon-button" aria-label="${label}" data-tooltip="${label}${shortcut ? ` (${shortcut})` : ''}">${icon(name)}</button>`;
 }
-

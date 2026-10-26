@@ -58,6 +58,7 @@ export const menuPasteHandlers: (() => boolean | Promise<boolean>)[] = [];
 // 文档变化：show = 切换/打开文档，preview = 渲染刷新完成。
 export const documentHooks: ((doc: any, kind: 'show' | 'preview') => void)[] = [];
 export function notifyDocument(doc: any, kind: 'show' | 'preview') {
+  if(kind==='show')window.dispatchEvent(new Event('mdre:document-changed'));
   for (const hook of documentHooks) {
     try { hook(doc, kind); } catch (reason) { console.error('MDRE 扩展文档钩子失败', reason); }
   }

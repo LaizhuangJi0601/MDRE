@@ -2,6 +2,10 @@
 mod files;
 mod explorer;
 mod persistence;
+mod word;
+mod watch;
+mod preferences;
+mod i18n;
 
 use std::{path::PathBuf, sync::{Arc, Mutex}, time::{Duration, SystemTime, UNIX_EPOCH}};
 use serde::Serialize;
@@ -149,8 +153,10 @@ fn main() {
         }))
         .manage(persistence::Storage::default())
         .manage(pending)
+        .manage(watch::Watches::default())
+        .manage(preferences::SettingsExit::default())
         .invoke_handler(tauri::generate_handler![
-            take_launch_path,
+            take_launch_path, preferences::open_settings_window, preferences::open_aux_window, preferences::prepare_settings_shutdown, preferences::settings_shutdown_result, word::detect_pandoc, word::word_convert, watch::watch_files, files::pick_word,
             files::pick_images, files::clipboard_image_paths,
             explorer::pick_folder, explorer::list_directory, explorer::create_document,
             export_pdf,

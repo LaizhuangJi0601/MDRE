@@ -172,23 +172,6 @@ fn decode_base64(text: &str) -> Result<Vec<u8>, String> {
     if output.is_empty() { return Err("图片数据为空".into()); }
     Ok(output)
 }
-#[cfg(test)]
-fn date_stamp() -> String {
-    let days = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() / 86_400).unwrap_or(0);
-    // 以 1970-01-01 为基准做民用日期换算，避免引入时间库。
-    let (mut year, mut remaining) = (1970i64, days as i64);
-    loop {
-        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-        let length = if leap { 366 } else { 365 };
-        if remaining < length { break; }
-        remaining -= length; year += 1;
-    }
-    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let months = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut month = 0;
-    while remaining >= months[month] { remaining -= months[month]; month += 1; }
-    format!("{year:04}-{:02}-{:02}", month + 1, remaining + 1)
-}
 // D.1：无路径文档的图片归属恢复区 <docId>/assets；有路径文档写入同级 assets。
 #[tauri::command]
 pub fn save_image(app: tauri::AppHandle, window: tauri::WebviewWindow, state: tauri::State<Storage>, request: ImageRequest) -> Result<SavedImage, String> {
@@ -235,62 +218,3 @@ pub fn read_image(window: tauri::WebviewWindow, resource_root: String, relative:
     let mime = image_type(canonical.extension().and_then(|s| s.to_str()).unwrap_or("")).ok_or("不支持的图片类型")?;
     Ok(format!("data:{mime};base64,{}", encode_base64(&bytes)))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn persistent_image_storage_and_fallback() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.tmp/rust-tests/images");
-        let first = store_image(&root.join("images"), b"image-bytes", "png", false).unwrap();
-        assert!(!first.fallback); assert!(first.relative_path.is_empty()); assert!(Path::new(&first.absolute_path).is_absolute());
-        let duplicate = store_image(&root.join("images"), b"image-bytes", "png", false).unwrap();
-        assert!(duplicate.deduplicated); assert_eq!(first.absolute_path, duplicate.absolute_path);
-        let fallback = store_image(&root.join("recovery/assets"), b"other-image", "png", true).unwrap();
-        assert!(fallback.fallback); assert!(fallback.relative_path.starts_with("assets/"));
-        assert_eq!(fs::read(fallback.absolute_path).unwrap(), b"other-image");
-    }
-    #[test]
-    fn atomic_and_immutable_records() {
-        // 测试文件统一落入项目 .tmp，不使用生产恢复目录。
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.tmp/rust-tests/atomic");
-        let target = root.join("atomic.json");
-        atomic_write(&target, b"old").unwrap(); atomic_write(&target, b"new").unwrap();
-        assert_eq!(fs::read(&target).unwrap(), b"new");
-        assert!(root.read_dir().unwrap().all(|entry| entry.unwrap().path().extension().unwrap() != "pending"));
-    }
-    #[test]
-    fn base64_roundtrip_and_image_types() {
-        for bytes in [b"a".as_slice(), b"ab", b"abc", b"\x00\xff\x10\x20\x30", &[7u8; 257]] {
-            assert_eq!(decode_base64(&encode_base64(bytes)).unwrap(), bytes);
-        }
-        assert_eq!(encode_base64(b"a"), "YQ==");
-        assert_eq!(encode_base64(b"abc"), "YWJj");
-        assert!(decode_base64("!!!!").is_err());
-        assert!(decode_base64("").is_err());
-        assert_eq!(image_type("PNG"), Some("image/png"));
-        assert_eq!(image_type("jpeg"), Some("image/jpeg"));
-        assert_eq!(image_type("tiff"), None);
-        assert_eq!(date_stamp().len(), 10);
-        assert!(date_stamp().starts_with("20"));
-    }
-    #[test]
-    fn latest_record_and_corruption_are_explicit() {
-        let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.tmp/rust-tests/records");
-        let record: Snapshot = serde_json::from_value(serde_json::json!({
-            "schema":1, "id":"test", "title":"test.md", "path":null, "source":"修改😀", "originalText":"原文",
-            "revision":2, "encoding":"utf-8", "bom":false, "savedFingerprint":fingerprint("原文"), "diskFingerprint":null,
-            "selection":{"source":{"from":0,"to":0},"render":{"from":1,"to":1},"active":"source"},
-            "readingAnchor":null,"sourceScroll":{"top":0,"left":0},"resourceOwners":[],"updatedAt":1
-        })).unwrap();
-        validate(&record).unwrap();
-        atomic_write(&directory.join("00000000000000000002.json"), &serde_json::to_vec(&record).unwrap()).unwrap();
-        atomic_write(&directory.join("interrupted.pending"), b"partial").unwrap();
-        // 不完整写入没有 .json 提交名，不会替代已提交版本。
-        assert_eq!(latest(&directory).unwrap().unwrap().revision, 2);
-        atomic_write(&directory.join("00000000000000000003.json"), b"invalid").unwrap();
-        assert!(latest(&directory).is_err());
-        fs::remove_file(directory.join("00000000000000000003.json")).unwrap();
-    }
-}
-

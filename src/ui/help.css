@@ -1,0 +1,68 @@
+/* 帮助与设置共用分类导航的视觉规范，正文保持单一纵向滚动区。 */
+#help-dialog { width:min(1080px,calc(100vw - 32px)); height:min(780px,calc(100vh - 32px)); max-width:calc(100vw - 24px); max-height:calc(100vh - 24px); padding:0; font-size:13px; line-height:1.6; }
+#help-dialog[open] { display:flex; flex-direction:column; }
+#help-dialog > h3 { margin:0; padding:14px 22px; border-bottom:1px solid var(--border); font-size:15px; font-weight:600; flex-shrink:0; }
+#help-dialog > .dialog-content { flex:1; min-height:0; display:flex; flex-direction:column; gap:16px; padding:16px 22px 0; overflow:hidden; }
+#help-dialog .help-search { display:flex; align-items:center; gap:14px; min-width:0; flex-shrink:0; }
+#help-dialog .help-search label { flex-shrink:0; font-weight:600; }
+#help-dialog #help-filter { width:100%; min-width:0; flex:1; height:36px; border:1px solid var(--border); border-radius:6px; padding:7px 10px; background:var(--surface); color:var(--text); font:inherit; }
+#help-dialog #help-search-status { flex:0 0 auto; color:var(--muted); font-size:12px; }
+#help-dialog #help-search-status:empty { display:none; }
+#help-dialog .help-layout { display:flex; flex:1; min-height:0; gap:24px; overflow:hidden; }
+#help-dialog .help-sidebar { width:190px; flex:0 0 190px; display:flex; flex-direction:column; min-height:0; padding-right:16px; border-right:1px solid var(--border); }
+#help-dialog .help-documents { display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
+#help-dialog .help-documents button { display:flex; flex-direction:column; gap:2px; width:100%; padding:9px 11px; text-align:left; border-radius:7px; }
+#help-dialog .help-documents strong { font-size:13px; font-weight:600; }
+#help-dialog .help-documents span { color:var(--muted); font-size:11px; }
+#help-dialog .help-documents button[aria-current="page"] { background:var(--hover); color:var(--accent); }
+#help-dialog .help-toc-label { padding:17px 11px 7px; margin-top:13px; border-top:1px solid var(--border); color:var(--muted); font-size:11px; flex-shrink:0; }
+#help-dialog #help-toc { min-height:0; overflow-y:auto; padding-bottom:16px; }
+#help-dialog :is(#help-content,#help-toc,pre) { scrollbar-width:thin; scrollbar-color:var(--muted) transparent; }
+#help-dialog #help-toc button { display:block; width:100%; padding:5px 11px; border-left:2px solid transparent; border-radius:0 5px 5px 0; text-align:left; font:inherit; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+#help-dialog #help-toc button[data-level="3"] { padding-left:21px; font-size:11px; color:var(--muted); }
+#help-dialog #help-toc button[aria-current="location"] { border-left-color:var(--accent); background:var(--hover); color:var(--accent); }
+#help-dialog #help-content { flex:1; min-width:0; min-height:0; padding:3px 14px 32px 0; overflow-y:auto; overflow-x:hidden; color:var(--text); font-size:14px; line-height:1.85; scrollbar-gutter:stable; }
+#help-dialog #help-content h1 { margin:0 0 12px; color:var(--text); font-size:25px; line-height:1.4; font-weight:600; letter-spacing:.02em; }
+#help-dialog #help-content h2 { margin:30px 0 12px; padding-top:6px; color:var(--text); font-size:18px; line-height:1.5; font-weight:600; }
+#help-dialog #help-content h3 { margin:22px 0 9px; padding:0; color:var(--text); font-size:15px; line-height:1.6; font-weight:600; border:0; }
+#help-dialog #help-content :is(p,ul,ol,pre,table) { margin:10px 0 16px; }
+#help-dialog #help-content p { color:var(--text); font-size:inherit; }
+#help-dialog #help-content > p:first-of-type { color:var(--muted); }
+#help-dialog #help-content :is(ul,ol) { padding-left:22px; }
+#help-dialog #help-content li { margin:5px 0; }
+#help-dialog #help-content strong { font-weight:600; }
+#help-dialog #help-content a { color:var(--accent); text-decoration:none; text-underline-offset:3px; overflow-wrap:anywhere; }
+#help-dialog #help-content a:hover { text-decoration:underline; }
+#help-dialog #help-content table { width:100%; min-width:0; table-layout:fixed; border-collapse:separate; border-spacing:0; border:1px solid var(--border); border-radius:7px; overflow:hidden; font-size:13px; line-height:1.75; }
+#help-dialog #help-content :is(th,td) { min-width:0; max-width:none; padding:9px 12px; border:0; border-bottom:1px solid var(--border); vertical-align:top; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+#help-dialog #help-content th { background:var(--hover); font-weight:600; }
+#help-dialog #help-content tbody tr:last-child td { border-bottom:0; }
+#help-dialog #help-content :is(th,td):first-child { width:25%; }
+#help-dialog #help-content.syntax-table :is(th,td):first-child { width:42%; }
+#help-dialog #help-content.syntax-table table:has(th:nth-child(3)) :is(th,td):first-child { width:20%; }
+#help-dialog #help-content.syntax-table table:has(th:nth-child(3)) :is(th,td):nth-child(2) { width:43%; }
+#help-dialog #help-content code { padding:2px 4px; border-radius:3px; background:var(--hover); color:inherit; font:12px/1.7 var(--font-mono); white-space:pre-wrap; overflow-wrap:anywhere; }
+#help-dialog #help-content pre { max-width:100%; min-width:0; padding:12px 14px; border:1px solid var(--border); border-radius:7px; background:var(--soft); overflow:auto; white-space:pre; }
+#help-dialog #help-content pre code { padding:0; background:none; white-space:pre; overflow-wrap:normal; }
+#help-dialog #help-content .help-license-text { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.75 var(--font-mono); }
+#help-dialog #help-empty { margin:32px 0; padding:18px; border:1px dashed var(--border); border-radius:7px; color:var(--muted); }
+#help-dialog #help-link-status { flex-shrink:0; color:var(--danger); font-size:12px; padding:0 22px; overflow-wrap:anywhere; }
+#help-dialog #help-link-status:empty { display:none; }
+#help-dialog .dialog-actions { flex-shrink:0; margin:0; padding:11px 22px; border-top:1px solid var(--border); align-items:center; }
+#help-dialog .help-offline { margin-right:auto; color:var(--muted); font-size:11px; }
+@media(max-width:760px) {
+  #help-dialog > .dialog-content { padding:12px 14px 0; gap:12px; }
+  #help-dialog .help-layout { gap:14px; }
+  #help-dialog .help-sidebar { width:144px; flex-basis:144px; padding-right:10px; }
+  #help-dialog .help-documents span { display:none; }
+  #help-dialog #help-content { padding-right:8px; font-size:13px; }
+  #help-dialog #help-content :is(th,td) { padding:7px 8px; font-size:12px; }
+}
+@media(max-width:520px) {
+  #help-dialog .help-sidebar { width:105px; flex-basis:105px; padding-right:7px; }
+  #help-dialog .help-documents button { padding:8px; }
+  #help-dialog .help-documents strong { font-size:12px; }
+  #help-dialog #help-toc button { padding-left:7px; font-size:11px; }
+  #help-dialog .help-search { gap:8px; }
+  #help-dialog .help-search label { font-size:12px; }
+}

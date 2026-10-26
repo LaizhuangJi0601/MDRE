@@ -1,35 +1,56 @@
-# MDRE
+<p align="center"><img src="src-tauri/icons/icon.png" alt="MDRE" width="104"></p>
 
-## 关于MDRE
+<h1 align="center">MDRE</h1>
 
-MDRE（Markdown Rendering Editor）是 Windows 本地 Markdown 编辑器，当前版本为 **0.2.5**。
+<p align="center"><strong>One Markdown document. Two ways to edit.</strong><br>A Windows workspace for Markdown editing, layout, and reading.<br><sub>Windows 10 / 11 · x64 · English / 简体中文</sub></p>
 
-支持 Markdown 源码与富文本同步编辑、数学公式可视化编辑、Mermaid 图表、代码语法高亮，以及 HTML / PDF 导出。A4 纸张模式支持连续或分页排版，以及 25%–250% 缩放；分页模式每行最多显示 3 页，并提供页码与正文对齐设置。侧栏提供文件列表、图片管理与大纲导航；渲染内容可复制为富文本，粘贴网页或 Word 的 HTML 时自动转换为 Markdown；导出菜单可生成包含文档与图片的可分享 zip 副本；表格支持列宽拖拽、对齐、合并／拆分与转换为 Markdown 表格。启动时恢复上次打开的文件夹与未关闭的文档；最近打开的文件与文件夹各保留最多 5 项。编辑与渲染资源随程序提供，可离线使用。
+<p align="center">
+  <a href="https://github.com/LaizhuangJi0601/MDRE/blob/main/CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.6-2878d5" alt="Version 0.2.6"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5b8c70" alt="MIT license"></a>
+  <a href="https://developer.microsoft.com/microsoft-edge/webview2/"><img src="https://img.shields.io/badge/platform-Windows_x64-667085" alt="Windows 10 / 11 · x64"></a>
+</p>
 
-0.2.5 新增图片管理、可分享副本、剪贴板互通与表格操作更新；历史版本见 [更新记录](CHANGELOG.md)。
+<p align="center"><a href="#features">Features</a> · <a href="#download-and-installation">Download and installation</a> · <a href="#development">Development</a> · <a href="#contributing">Contributing</a> · <a href="#license">License</a></p>
 
-界面采用按类别分组的单行工具栏，支持下划线、颜色、高亮、图片宽度和代码块主题设置。欢迎页提供新建和打开文件入口。操作方法见 [MDRE使用](docs/help/MDRE使用.md)。
+<p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 
-下载当前仓库中的 [mdre.exe](https://github.com/LaizhuangJi0601/MDRE/raw/refs/heads/main/mdre.exe) 即可运行。运行需要 Microsoft Edge WebView2 Runtime；历史版本见 [Releases](https://github.com/LaizhuangJi0601/MDRE/releases)。
+## Screenshot
 
-## 编译环境依赖
+![MDRE with synchronized Markdown source and rich-text views](docs/assets/editor.png)
 
-当前项目使用 Windows 系统接口，请在 Windows 10 / 11 x64 环境中编译。
+## Features
 
-| 依赖 | 要求 |
-| --- | --- |
-| [Git](https://git-scm.com/) | 用于克隆仓库。 |
-| [Node.js](https://nodejs.org/) | 建议使用 24 LTS。 |
-| [pnpm](https://pnpm.io/installation) | 建议使用 12.x。 |
-| [Rust / Cargo](https://rustup.rs/) | 使用 stable 的 `x86_64-pc-windows-msvc` 工具链。 |
-| [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) | 安装“使用 C++ 的桌面开发”工作负载，其中应包含 MSVC 和 Windows SDK。 |
-| [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) | Windows 界面渲染与 PDF 导出所需运行时。 |
+- **Edit source and rich text together.** Keep both panes synchronized, or work in rich text alone. Format headings, lists, links, and text through the toolbar and context menus.
+- **Write equations, diagrams, and code.** Render math with KaTeX, edit equations visually with MathLive, and use Mermaid diagrams, syntax highlighting, and code block themes.
+- **Choose a reading layout.** Use continuous or paged A4 views with 25%–250% zoom. Outside A4, adjust reading width from 60% to 100% and choose one of four text alignments.
+- **Work with tables and images.** Resize columns, align or merge cells, and split merged cells. Browse image references in document order and jump to their locations.
+- **Export and exchange content.** Export HTML, PDF, or a ZIP containing Markdown and local images. Copy rich text and convert pasted HTML into Markdown.
+- **Convert Word documents.** Import and export `.docx` through a separately installed Pandoc, including common document structures and equations.
+- **Set up your workspace.** Choose light or dark themes, English or Simplified Chinese, view presets, categorized settings, and searchable offline help with chapter navigation.
 
-首次安装依赖需要联网。环境说明见 [Tauri Windows 编译依赖](https://v2.tauri.app/start/prerequisites/#windows)。
+The desktop workspace includes files, tabs, and recent items, with autosave, recovery snapshots, external file change detection, and remembered reading positions.
 
-## 编译命令
+Editing and preview run locally. Editor resources, equation fonts, and help are bundled; remote images and external links depend on network access. See the [user guide](docs/help/en/usage.md) and [syntax reference](docs/help/en/syntax.md) for supported behavior.
 
-在 PowerShell 中执行：
+## Download and installation
+
+Current build: **0.2.6 · updata2**. See the [changelog](CHANGELOG.md) for version notes.
+
+| Edition | Download | Requirements |
+| --- | --- | --- |
+| Windows desktop | [Download mdre.exe](https://github.com/LaizhuangJi0601/MDRE/raw/refs/heads/main/mdre.exe) · [SHA-256](SHA256SUMS.txt) | Windows 10 / 11 · x64 |
+
+Download and run `mdre.exe`. Windows requires the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). Use the welcome page to create a document or open an existing Markdown file.
+
+Preferences, stored images, and recovery data are kept in your user application-data directory. Open Settings to choose a language, theme, default view, and keyboard shortcuts.
+
+Word conversion is optional. Install [Pandoc](https://pandoc.org/installing.html), then use Settings → Word conversion to detect it or select its executable. On Windows, specify the full path to **`pandoc.exe`**, not its folder. Complex Word layouts may simplify; review important converted documents.
+
+Looking for the other edition? See the [VS Code extension](https://github.com/LaizhuangJi0601/MDRE-for-VS-Code).
+
+## Development
+
+Build on Windows 10/11 x64 with Node.js 24 LTS, pnpm 12.x, Rust stable for MSVC, and Visual Studio Build Tools with Desktop development with C++ and the Windows SDK. See the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#windows).
 
 ```powershell
 git clone https://github.com/LaizhuangJi0601/MDRE.git
@@ -38,36 +59,14 @@ pnpm install --frozen-lockfile
 pnpm app:build
 ```
 
-`pnpm app:build` 依次构建前端和 Rust 后端，生成 `src-tauri\target\release\mdre.exe`。
+Run `src-tauri/target/release/mdre.exe` after the build. Use `pnpm dev` for the frontend development server and `pnpm app` for the desktop development instance.
 
-编译完成后运行：
+## Contributing
 
-```powershell
-.\src-tauri\target\release\mdre.exe
-```
+Bug reports, suggestions, and pull requests are welcome. Use [Issues](https://github.com/LaizhuangJi0601/MDRE/issues) with the app version, reproduction steps, and a small Markdown example; include a screenshot for visual issues. Keep the English and Chinese documentation aligned when changing user-facing behavior.
 
-## 引用与感谢
+## License
 
-感谢以下开源项目的作者、维护者和贡献者：
+MDRE is released under the [MIT License](LICENSE). It builds on projects including [Tauri](https://tauri.app/), [CodeMirror](https://codemirror.net/), [ProseMirror](https://prosemirror.net/), [markdown-it](https://github.com/markdown-it/markdown-it), [KaTeX](https://katex.org/), [MathLive](https://mathlive.io/), [Mermaid](https://mermaid.js.org/), and [highlight.js](https://highlightjs.org/).
 
-| 项目 | 用途 |
-| --- | --- |
-| [Tauri 2](https://github.com/tauri-apps/tauri) / [Tauri Plugins](https://github.com/tauri-apps/plugins-workspace) | 桌面框架、窗口管理与单实例运行。 |
-| [Rust](https://github.com/rust-lang/rust) / [TypeScript](https://github.com/microsoft/TypeScript) / [Vite](https://github.com/vitejs/vite) | 开发语言与构建工具。 |
-| [CodeMirror 6](https://codemirror.net/) | Markdown 源码编辑。 |
-| [ProseMirror](https://github.com/ProseMirror) | 富文本编辑与文档事务。 |
-| [markdown-it](https://github.com/markdown-it/markdown-it) | Markdown 解析。 |
-| [KaTeX](https://github.com/KaTeX/KaTeX) | 数学公式渲染与导出。 |
-| [MathLive](https://github.com/arnog/mathlive) | 数学公式可视化编辑。 |
-| [Mermaid](https://github.com/mermaid-js/mermaid) | 图表渲染。 |
-| [highlight.js](https://github.com/highlightjs/highlight.js) | 代码语法高亮。 |
-
-第三方组件及授权说明见 [MDRE声明](docs/help/MDRE声明.md) 和 [第三方依赖清单](docs/licenses/依赖清单.md)，授权原文见 [许可证文本](docs/licenses/许可证文本.txt)。
-
-## 0.2.5
-
-新增图片管理面板、可分享副本（文档与图片打包为 zip）、复制为富文本（Ctrl+Shift+C）与 HTML→Markdown 粘贴；表格支持列宽拖拽与菜单、上下居中、合并／拆分单元格、转换为 Markdown 表格及列宽注释，HTML／PDF 导出保留表格格式。详见 [更新说明](docs/releases/0.2.5.md)。
-
-## 0.2.4
-
-汇总 0.2.2、0.2.3 的全部更新，并修复 HTML／PDF 导出对本地绝对路径图片的误判：视图预设、px／em 字号单位、表格多选批量对齐、查找上一个匹配、PDF 分页／长页导出、插件自动保存等。详见离线帮助与 [更新说明](docs/releases/0.2.4.md)。
+Third-party copyright and usage terms remain governed by their original licenses. See [notices and licenses](docs/help/en/notices.md).

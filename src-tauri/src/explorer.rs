@@ -85,7 +85,7 @@ pub fn pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, Strin
         let result = (|| {
             let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).map_err(|error| error.to_string())?;
             dialog.SetOptions(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR).map_err(|error| error.to_string())?;
-            let title = wide("打开 Markdown 文件夹"); dialog.SetTitle(PCWSTR(title.as_ptr())).map_err(|error| error.to_string())?;
+            let title = wide(&crate::i18n::text("打开 Markdown 文件夹")); dialog.SetTitle(PCWSTR(title.as_ptr())).map_err(|error| error.to_string())?;
             let owner = window.hwnd().ok().map(|handle| windows::Win32::Foundation::HWND(handle.0 as _));
             if let Err(error) = dialog.Show(owner) { if error.code().0 as u32 == 0x800704c7 { return Ok(None); } return Err(error.to_string()); }
             let item = dialog.GetResult().map_err(|error| error.to_string())?;

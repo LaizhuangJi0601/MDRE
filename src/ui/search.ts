@@ -1,3 +1,4 @@
+import {highlightTarget} from './motion';
 import { Plugin, PluginKey } from 'prosemirror-state';
 import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view';
 
@@ -82,7 +83,7 @@ export function find(view: EditorView, options: SearchOptions, next: boolean | n
     view.dom.dispatchEvent(new CustomEvent('mdre:search-jump', { bubbles: true }));
     const rect = view.coordsAtPos(result.hits[active].from), pane = view.dom.closest<HTMLElement>('#render')!, bounds = pane.getBoundingClientRect();
     if (rect.top < bounds.top || rect.bottom > bounds.bottom) pane.scrollTop += rect.top - bounds.top - bounds.height / 3;
-    requestAnimationFrame(() => pane.querySelector<HTMLElement>('.search-hit.current')?.scrollIntoView({ block: 'center', inline: 'nearest' }));
+    requestAnimationFrame(() => { const hit=pane.querySelector<HTMLElement>('.search-hit.current');hit?.scrollIntoView({ block:'center',inline:'nearest' });highlightTarget(hit); });
   }
   if (!options.query) return '';
   if (!result.hits.length) return '无匹配';

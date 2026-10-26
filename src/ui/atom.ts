@@ -1,3 +1,4 @@
+import {markUi,languageAttributes,t} from '../i18n/ui';
 import type { Node as PMNode } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';
 import { renderMath, tocEntries, tocHtml } from '../render/markdown';
@@ -20,9 +21,9 @@ export function mathInlineView(initial: PMNode, _view: EditorView, getPos: () =>
     const latex = String(node.attrs.latex ?? '');
     dom.innerHTML = renderMath(latex, false);
     dom.dataset.latex = latex;
-    dom.title = `${latex}\n（双击可视化编辑）`;
+    languageAttributes(dom,element=>{element.title=`${String(node.attrs.latex??'')}\n${t('（双击可视化编辑）')}`;element.setAttribute('aria-label',`${t(node.type.name==='math_inline'?'公式：':'块级公式：')}${String(node.attrs.latex??'')}`);});
     dom.setAttribute('role', 'button');
-    dom.setAttribute('aria-label', `公式：${latex}`);
+
     dom.contentEditable = 'false';
   };
   dom.addEventListener('mousedown', event => { event.preventDefault(); });
@@ -50,8 +51,8 @@ export function mathBlockView(initial: PMNode, _view: EditorView, getPos: () => 
     dom.innerHTML = renderMath(latex, true);
     dom.dataset.latex = latex;
     dom.dataset.block = String(node.attrs.id);
-    dom.title = `${latex}\n（双击可视化编辑）`;
-    dom.setAttribute('aria-label', `块级公式：${latex}`);
+    languageAttributes(dom,element=>{element.title=`${String(node.attrs.latex??'')}\n${t('（双击可视化编辑）')}`;element.setAttribute('aria-label',`${t(node.type.name==='math_inline'?'公式：':'块级公式：')}${String(node.attrs.latex??'')}`);});
+
   };
   dom.addEventListener('mousedown', event => event.preventDefault());
   dom.addEventListener('dblclick', event => {
@@ -79,7 +80,7 @@ export function footnoteRefView(initial: PMNode, _view: EditorView, _getPos: () 
     dom.id = `footnote-ref-${label}`;
     dom.dataset.label = label;
     dom.setAttribute('role', 'doc-noteref');
-    dom.setAttribute('aria-label', `脚注 ${index}：${label}`);
+    languageAttributes(dom,element=>element.setAttribute('aria-label',`${t('脚注')} ${Number(node.attrs.index??0)}: ${String(node.attrs.label??'')}`));
     dom.onclick = event => {
       event.preventDefault();
       const target = document.getElementById(`footnote-def-${index}`);
@@ -128,7 +129,7 @@ export function tocView(initial: PMNode, _view: EditorView, _getPos: () => numbe
   let node = initial;
   const dom = document.createElement('nav');
   dom.className = 'toc-block';
-  dom.setAttribute('aria-label', '目录');
+  languageAttributes(dom,element=>element.setAttribute('aria-label',t('目录')));
   const paint = () => {
     const entries = tocEntries(options.model() as never);
     dom.innerHTML = tocHtml(entries).replace(/^<nav[^>]*>|<\/nav>$/g, '');
@@ -154,7 +155,8 @@ export function frontMatterView(initial: PMNode, _view: EditorView, getPos: () =
       toggle.setAttribute('aria-expanded', String(open));
     };
     dom.dataset.block = String(node.attrs.id);
-    dom.title = '双击编辑元数据源码';
+    languageAttributes(dom,element=>{element.title=t('双击编辑元数据源码');});
+    markUi(dom.querySelector<HTMLElement>('.front-matter-toggle')!);
   };
   dom.addEventListener('dblclick', event => {
     event.preventDefault();

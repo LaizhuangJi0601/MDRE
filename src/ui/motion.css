@@ -1,0 +1,42 @@
+/* 原生过渡覆盖界面显隐；不使用 transition:all，不延迟布局和输入。 */
+:root { --motion-fast:140ms; --motion-popup:220ms; --motion-panel:320ms; --motion-ease:cubic-bezier(.2,.7,.2,1); }
+:root[data-motion="on"] :is(button,select,input,textarea,.menu-trigger,.file-row,.outline-row,.tab-close) {
+  transition:background-color var(--motion-fast),border-color var(--motion-fast),color var(--motion-fast),box-shadow var(--motion-fast);
+}
+:root[data-motion="on"] :is(.menu-popup,.dropdown-popup,.context-menu,#tooltip,#image-preview,#cell-menu) {
+  opacity:1; transition:opacity var(--motion-popup) var(--motion-ease),display var(--motion-popup) allow-discrete;
+}
+:root[data-motion="on"] :is(dialog,#scrim,#welcome,#search-bar,#replace-controls,#source-pane,#render-pane,#outline,#edit-bar,.tabs-bar,#status,#focus-exit,.settings-preview,#settings-form fieldset) {
+  opacity:1; transition:opacity var(--motion-panel) var(--motion-ease),display var(--motion-panel) allow-discrete;
+}
+:root[data-motion="on"] :is(.menu-popup,.dropdown-popup,.context-menu,#tooltip,#image-preview,#cell-menu,dialog,#scrim,#welcome,#search-bar,#replace-controls,#source-pane,#render-pane,#outline,#edit-bar,.tabs-bar,#status,#focus-exit,.settings-preview,#settings-form fieldset)[hidden],
+:root[data-motion="on"] dialog:not([open]) { opacity:0; pointer-events:none; }
+@starting-style {
+  :root[data-motion="on"] :is(.menu-popup,.dropdown-popup,.context-menu,#tooltip,#image-preview,#cell-menu,dialog[open],#scrim,#welcome,#search-bar,#replace-controls,#source-pane,#render-pane,#outline,#edit-bar,.tabs-bar,#status,#focus-exit,.settings-preview,#settings-form fieldset):not([hidden]) { opacity:0; }
+}
+:root[data-motion="on"] :is(#tabs > button,.file-children,.outline-children,.front-matter-body,.code-body,.ML__keyboard) { animation:mdre-reveal var(--motion-popup) var(--motion-ease); }
+:root[data-motion="on"] #image-large { transition:transform var(--motion-panel) var(--motion-ease); }
+:root[data-motion="on"] :is(.file-chevron,.outline-arrow,.fold-toggle) { transition:transform var(--motion-fast); }
+:root[data-motion="on"] :is(#image-handle,.column-resize-handle) { transition:opacity var(--motion-fast),border-color var(--motion-fast); }
+:root[data-motion="on"] :is(#outline-panel,#files-view,#outline-view,#images-view,#image-manager,#outline-list,#outline-empty,.file-children,.front-matter-body,.inline-code-editor) {
+  opacity:1; transition:opacity var(--motion-popup) var(--motion-ease),display var(--motion-popup) allow-discrete;
+}
+:root[data-motion="on"] :is(#outline-panel,#files-view,#outline-view,#images-view,#image-manager,#outline-list,#outline-empty,.file-children,.front-matter-body,.inline-code-editor)[hidden],
+:root[data-motion="on"] .outline-collapsed :is(#outline-list,#outline-empty),
+:root[data-motion="on"] body.focus-mode :is(#titlebar,#edit-bar,.tabs-bar,#status,#search-bar,#error),
+:root[data-motion="on"] body.toolbar-hidden #edit-bar { opacity:0; pointer-events:none; }
+@starting-style {
+  :root[data-motion="on"] :is(#outline-panel,#files-view,#outline-view,#images-view,#image-manager,#outline-list,#outline-empty,.file-children,.front-matter-body,.inline-code-editor):not([hidden]) { opacity:0; }
+}
+:root[data-motion="on"] :is(body,#titlebar,.toolbar,.sidebar-tabs,#settings-dialog,.settings-preview) {
+  transition:background-color var(--motion-panel),border-color var(--motion-panel),color var(--motion-fast),opacity var(--motion-panel),display var(--motion-panel) allow-discrete;
+}
+@keyframes mdre-reveal { from { opacity:0; } to { opacity:1; } }
+/* 输入期间不在输入面及其祖先播放动画，候选框使用稳定的浏览器光标坐标。 */
+body.ime-active :is(#source-pane,#render-pane,#render,.ProseMirror,.cm-editor,.inline-editor),body.ime-active :is(#source-pane,#render-pane) *,
+:root[data-motion="off"] *, :root[data-motion="off"] *::before, :root[data-motion="off"] *::after {
+  animation:none!important; transition:none!important; scroll-behavior:auto!important;
+}
+@media (prefers-reduced-motion:reduce) {
+  :root:not([data-motion="on"]) *, :root:not([data-motion="on"]) *::before, :root:not([data-motion="on"]) *::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; }
+}

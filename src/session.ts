@@ -185,4 +185,3 @@ export class Workspace {
     if (this.activeId === id || !this.documents.has(this.activeId)) this.activeId = nextId && this.documents.has(nextId) ? nextId : this.documents.keys().next().value ?? '';
   }
 }
-
