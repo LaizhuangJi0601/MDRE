@@ -71,7 +71,7 @@ F11 switches between Focus mode and Full editing. Sidebar and toolbar visibility
 
 - **Non-A4 width:** the status slider ranges from 60% to 100%, initially 80% for new configurations. It remembers changes and affects screen reading only. Text defaults to justified alignment; choose justified, left, center or right under Settings → Paper & images.
 - **A4 layout:** 210 × 297mm paper, continuous or paged, with independent left, center, right or justified body alignment.
-- **Zoom and pages:** Ctrl+wheel in the preview zooms from 25% to 250%. Paged layout calculates paper first, then scales it. One to three pages fit per row; page numbers follow reading order.
+- **Zoom and pages:** Ctrl+wheel in the preview zooms from 25% to 250%. The zoom level is saved: reopening keeps the last ratio, and every document you open afterwards uses it. Paged layout calculates paper first, then scales it. One to three pages fit per row; page numbers follow reading order.
 - **Reading position:** reopening restores the reading anchor and source scroll. Visible text coordinates scrolling across continuous, paged and zoomed layouts.
 
 Page numbers, gaps and paper decorations do not change Markdown or create undo steps. Oversized indivisible blocks and cells scroll internally.
@@ -86,11 +86,13 @@ Page numbers, gaps and paper decorations do not change Markdown or create undo s
 
 At 1MiB of UTF-8 source, preview updates become manual to keep typing responsive. Refresh or Ctrl+Shift+R updates rendering.
 
+Parsing and rendering of long documents have been optimized: large text-heavy files (roughly 130 KB and above) parse faster and accept input more smoothly. While typing continuously, the character and word counts in the status bar may lag up to about 0.2 seconds; the final values are unchanged.
+
 ## Search and navigation
 
 Ctrl+F opens Find; Ctrl+H opens Replace. Case matching, whole words and regular expressions are supported. Enter selects the next result and Shift+Enter the previous result. Replacement can be undone.
 
-The outline follows heading hierarchy and reading position. Clicking a heading positions it near the top. Document TOCs and internal links use heading anchors; explicit IDs provide stable addresses. Go to line is available through the menu and shortcut.
+The outline follows heading hierarchy and reading position. Clicking a heading positions it near the top. Document TOCs and internal links use heading anchors; an internal link may use `#heading-text`, `#sec-…` or an explicit ID, case and URL-encoding differences are ignored, and duplicate headings resolve to the first one. Explicit IDs provide stable addresses. A relative `.md` link such as `[other](other.md)`, optionally with a `#section` anchor, opens the target document in a new tab when clicked in editing or reading mode; an unsaved document asks you to save it first. Go to line is available through the menu and shortcut.
 
 ## Copying and pasting
 
@@ -137,7 +139,7 @@ On Windows, specify the **full path to `pandoc.exe`**, such as `D:\Tools\Pandoc\
 | Action | Method |
 | --- | --- |
 | Import Word | File → Import Word (.docx), then choose a new `.md` path. Existing Markdown files are never overwritten. The new document opens after conversion; the Word original stays intact. |
-| Export Word | Export → Export Word (.docx). An optional reference `.docx` controls styles; leaving it empty uses Pandoc defaults. |
+| Export Word | Export → Export Word (.docx). An optional reference `.docx` controls styles; leaving it empty uses Pandoc defaults. The exported document follows the Markdown body and adds no extra title such as "MDRE document snapshot". |
 | Images | Import extracts embedded images to a sibling `name.assets-unique-id` folder with relative references. Keep the folder when moving or sharing. Missing images stop Word export and are reported. |
 | Equations and structure | Common text, lists, code, links, plain tables and equations are supported. Equations become native Word equations and can return to Markdown. |
 
@@ -155,7 +157,7 @@ Settings opens a separate desktop window with remembered geometry and support fo
 | Reset this category | Reset only the current category; Apply or OK saves it. |
 | Exit the application | After documents are handled, validate and save the settings draft, then close Settings. Invalid settings or write failures keep the window available for correction. |
 
-Language offers Simplified Chinese and English and applies to menus, tooltips, welcome, settings and offline help. Documents, file paths and original license texts are preserved. Startup mode applies at the next launch. Animations offer System, On and Off; System follows reduced-motion preferences. Transitions use readable fades without moving the text input surface.
+Language offers Simplified Chinese and English and applies to menus, tooltips, welcome, settings and offline help. Documents, file paths and original license texts are preserved. Startup mode applies at the next launch. Body and monospace font choices list fonts installed on the system. Animations offer System, On and Off; System follows reduced-motion preferences. Transitions cross-fade in place for about 0.8 seconds: outgoing content fades out where it is, incoming content fades in at its final position, and nothing slides. The text input surface stays steady during composition input. Settings, help and shortcut windows remember their last position, reopen there, and are kept inside the visible screen.
 
 Help and Keyboard shortcuts use title-bar controls. Desktop auxiliary windows use native minimize, maximize, close and edge resizing. Embedded windows provide equivalent controls and resizing at all edges; minimize collapses the content, and maximize toggles the available viewport. Help has no bottom Close button. Esc closes help.
 

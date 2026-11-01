@@ -21,7 +21,10 @@ type WordOptions = { workspace: Workspace; flush(): void; fail(reason: unknown):
 export async function wordHtml(source: string, resolve: (src: string) => Promise<string | null>) {
   const page = new DOMParser().parseFromString(await staticHtml(source, resolve, {mathFormat:'mathml'}), 'text/html');
   // 使用 MathML 交给 Pandoc HTML reader，兼容本机 2.12 并生成 OMML。
-  page.querySelectorAll('style,script,link,meta,.code-header,.footnote-backref').forEach(e => e.remove());
+  // v0.2.7：Word 导出只保留正文。<title> 会被 Pandoc HTML reader 当作文档标题插到 DOCX 开头
+  // （就是用户看到的“MDRE 文档快照”），样式、脚本、私有注释也不应写入导出文件。
+  page.querySelectorAll('style,script,link,meta,title,.code-header,.footnote-backref').forEach(e => e.remove());
+  for (const node of Array.from(page.body.childNodes)) if (node.nodeType === Node.COMMENT_NODE) node.remove();
   return page.documentElement.outerHTML;
 }
 export function setupWord(options: WordOptions) {

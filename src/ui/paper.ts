@@ -1,8 +1,21 @@
 import { settings, saveSettings } from '../persistence/settings';
 // 纸张显示独立于文档模式；缩放比例固定在渲染页右下角。
+// v0.2.7：A4 缩放属于全局显示设置（settings.paper_zoom，25%–250%），对所有文档与重启生效。
+const MIN_ZOOM = 0.25, MAX_ZOOM = 2.5, ZOOM_SAVE_DELAY = 400;
+const limitZoom = (value: number) => Number.isFinite(value) ? Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value)) : 1;
 export function setupPaper(pane: HTMLElement, button: HTMLButtonElement, label: HTMLElement, fail: (reason: unknown) => void) {
-  let enabled = settings().paper_enabled, zoom = 1;
+  let enabled = settings().paper_enabled, zoom = limitZoom(settings().paper_zoom);
   let anchor: { page: number; x: number; y: number; pointerX: number; pointerY: number } | undefined;
+  // 滚轮缩放连续触发，按最后一次操作节流写入配置，避免频繁落盘。
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  const writeZoom = () => {
+    saveTimer = undefined;
+    void saveSettings({ paper_zoom: Number(zoom.toFixed(3)) }).catch(fail);
+  };
+  const rememberZoom = () => {
+    if (saveTimer !== undefined) clearTimeout(saveTimer);
+    saveTimer = setTimeout(writeZoom, ZOOM_SAVE_DELAY);
+  };
   const information = () => {
     if (!enabled) { label.textContent = ''; return; }
     const percentage = `${Math.round(zoom * 100)}%`;
@@ -48,12 +61,13 @@ export function setupPaper(pane: HTMLElement, button: HTMLButtonElement, label: 
         ?? sheets.find(sheet => sheet.getBoundingClientRect().bottom > rect.top);
       if (sheet) { const box = sheet.getBoundingClientRect(); anchor = { page: Number(sheet.dataset.page), x: (event.clientX - box.left) / previous, y: (event.clientY - box.top) / previous, pointerX: x, pointerY: y }; }
     }
-    zoom = Math.max(0.25, Math.min(2.5, zoom * Math.exp(-event.deltaY * 0.002)));
+    zoom = limitZoom(zoom * Math.exp(-event.deltaY * 0.002));
     const left = pane.scrollLeft, top = pane.scrollTop;
     paint();
     pane.scrollLeft = (left + x) * zoom / previous - x;
     pane.scrollTop = (top + y) * zoom / previous - y;
+    rememberZoom();
   }, { passive: false });
   paint();
-  return { toggle, set(value: boolean) { enabled = value; paint(); }, refresh() { enabled = settings().paper_enabled; paint(); }, get enabled() { return enabled; } };
+  return { toggle, set(value: boolean) { enabled = value; paint(); }, refresh() { enabled = settings().paper_enabled; if (saveTimer === undefined) zoom = limitZoom(settings().paper_zoom); else writeZoom(); paint(); }, get enabled() { return enabled; } };
 }

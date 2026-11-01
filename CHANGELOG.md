@@ -1,5 +1,9 @@
 # 更新记录
 
+## v0.2.7 — 2026-10-31
+
+Reliable Mermaid rendering, in-place cross-fade transitions, in-editor extension settings, cleaner Word export, remembered A4 zoom and window positions, system fonts, faster large-document editing, and improved links and anchors. See [version notes](docs/releases/0.2.7.md).
+
 ## v0.2.6 · updata2 — 2026-10-26
 
 English / 简体中文 UI, external Pandoc Word conversion, categorized settings and offline help, adjustable reading layout, and refined window interactions. See [version notes](docs/releases/0.2.6.md).

@@ -1,38 +1,49 @@
-/* 原生过渡覆盖界面显隐；不使用 transition:all，不延迟布局和输入。 */
-:root { --motion-fast:140ms; --motion-popup:220ms; --motion-panel:320ms; --motion-ease:cubic-bezier(.2,.7,.2,1); }
-:root[data-motion="on"] :is(button,select,input,textarea,.menu-trigger,.file-row,.outline-row,.tab-close) {
+/* v0.2.7 动画：内容切换统一为原位交叉淡入淡出（800ms）。
+   正文/侧栏/主视图/标签页/主题/工具栏等“参与布局”的切换由 motion.ts 的快照覆盖层完成，
+   本文件只保留不参与布局的浮层（菜单、右键菜单、下拉、提示）与悬停反馈；
+   不写 transform/scale/translate 位移动画，不给输入面叠加位移或缩放。 */
+:root { --motion-swap:800ms; --motion-fast:140ms; --motion-popup:800ms; --motion-panel:800ms; --motion-ease:cubic-bezier(.33,0,.25,1); }
+
+/* 悬停/选中反馈保持快速，避免按钮颜色变化拖慢操作感。 */
+:root[data-motion="on"] :is(button,select,input,textarea,.menu-trigger,.file-row,.outline-row,.image-row,.tab-close) {
   transition:background-color var(--motion-fast),border-color var(--motion-fast),color var(--motion-fast),box-shadow var(--motion-fast);
 }
-:root[data-motion="on"] :is(.menu-popup,.dropdown-popup,.context-menu,#tooltip,#image-preview,#cell-menu) {
+
+/* 浮层：绝对/固定定位，不参与文档排版，可安全地原地淡入淡出。 */
+:root[data-motion="on"] :is(.menu-popup,.dropdown-popup,.context-menu,#cell-menu) {
   opacity:1; transition:opacity var(--motion-popup) var(--motion-ease),display var(--motion-popup) allow-discrete;
 }
-:root[data-motion="on"] :is(dialog,#scrim,#welcome,#search-bar,#replace-controls,#source-pane,#render-pane,#outline,#edit-bar,.tabs-bar,#status,#focus-exit,.settings-preview,#settings-form fieldset) {
-  opacity:1; transition:opacity var(--motion-panel) var(--motion-ease),display var(--motion-panel) allow-discrete;
-}
-:root[data-motion="on"] :is(.menu-popup,.dropdown-popup,.context-menu,#tooltip,#image-preview,#cell-menu,dialog,#scrim,#welcome,#search-bar,#replace-controls,#source-pane,#render-pane,#outline,#edit-bar,.tabs-bar,#status,#focus-exit,.settings-preview,#settings-form fieldset)[hidden],
-:root[data-motion="on"] dialog:not([open]) { opacity:0; pointer-events:none; }
+:root[data-motion="on"] :is(.menu-popup,.dropdown-popup,.context-menu,#cell-menu)[hidden] { opacity:0; pointer-events:none; }
 @starting-style {
-  :root[data-motion="on"] :is(.menu-popup,.dropdown-popup,.context-menu,#tooltip,#image-preview,#cell-menu,dialog[open],#scrim,#welcome,#search-bar,#replace-controls,#source-pane,#render-pane,#outline,#edit-bar,.tabs-bar,#status,#focus-exit,.settings-preview,#settings-form fieldset):not([hidden]) { opacity:0; }
+  :root[data-motion="on"] :is(.menu-popup,.dropdown-popup,.context-menu,#cell-menu):not([hidden]) { opacity:0; }
 }
-:root[data-motion="on"] :is(#tabs > button,.file-children,.outline-children,.front-matter-body,.code-body,.ML__keyboard) { animation:mdre-reveal var(--motion-popup) var(--motion-ease); }
-:root[data-motion="on"] #image-large { transition:transform var(--motion-panel) var(--motion-ease); }
-:root[data-motion="on"] :is(.file-chevron,.outline-arrow,.fold-toggle) { transition:transform var(--motion-fast); }
-:root[data-motion="on"] :is(#image-handle,.column-resize-handle) { transition:opacity var(--motion-fast),border-color var(--motion-fast); }
-:root[data-motion="on"] :is(#outline-panel,#files-view,#outline-view,#images-view,#image-manager,#outline-list,#outline-empty,.file-children,.front-matter-body,.inline-code-editor) {
-  opacity:1; transition:opacity var(--motion-popup) var(--motion-ease),display var(--motion-popup) allow-discrete;
+
+/* 悬停提示与大图预览需要即时反馈，保持快速淡入。 */
+:root[data-motion="on"] :is(#tooltip,#image-preview) {
+  opacity:1; transition:opacity var(--motion-fast) linear,display var(--motion-fast) allow-discrete;
 }
-:root[data-motion="on"] :is(#outline-panel,#files-view,#outline-view,#images-view,#image-manager,#outline-list,#outline-empty,.file-children,.front-matter-body,.inline-code-editor)[hidden],
-:root[data-motion="on"] .outline-collapsed :is(#outline-list,#outline-empty),
-:root[data-motion="on"] body.focus-mode :is(#titlebar,#edit-bar,.tabs-bar,#status,#search-bar,#error),
-:root[data-motion="on"] body.toolbar-hidden #edit-bar { opacity:0; pointer-events:none; }
+:root[data-motion="on"] :is(#tooltip,#image-preview)[hidden] { opacity:0; pointer-events:none; }
 @starting-style {
-  :root[data-motion="on"] :is(#outline-panel,#files-view,#outline-view,#images-view,#image-manager,#outline-list,#outline-empty,.file-children,.front-matter-body,.inline-code-editor):not([hidden]) { opacity:0; }
+  :root[data-motion="on"] :is(#tooltip,#image-preview):not([hidden]) { opacity:0; }
 }
-:root[data-motion="on"] :is(body,#titlebar,.toolbar,.sidebar-tabs,#settings-dialog,.settings-preview) {
-  transition:background-color var(--motion-panel),border-color var(--motion-panel),color var(--motion-fast),opacity var(--motion-panel),display var(--motion-panel) allow-discrete;
+
+/* 小范围新内容（新建标签、展开的子项）只做原位淡入，不移动既有内容。 */
+:root[data-motion="on"] :is(#tabs > button,.file-children,.outline-children,.front-matter-body,.code-body,.ML__keyboard) {
+  animation:mdre-reveal var(--motion-swap) var(--motion-ease);
 }
 @keyframes mdre-reveal { from { opacity:0; } to { opacity:1; } }
-/* 输入期间不在输入面及其祖先播放动画，候选框使用稳定的浏览器光标坐标。 */
+
+/* 图片查看的旋转/缩放仍用同一时长，但只作用于图片本身。 */
+:root[data-motion="on"] #image-large { transition:transform var(--motion-swap) var(--motion-ease); }
+:root[data-motion="on"] :is(.file-chevron,.outline-arrow,.fold-toggle) { transition:transform var(--motion-fast); }
+:root[data-motion="on"] :is(#image-handle,.column-resize-handle) { transition:opacity var(--motion-fast),border-color var(--motion-fast); }
+
+/* 快照覆盖层：静态截图，停用其中所有动画与过渡，避免克隆内容重播动画。 */
+.mdre-ghost, .mdre-ghost *, .mdre-ghost *::before, .mdre-ghost *::after {
+  animation:none!important; transition:none!important; scroll-behavior:auto!important;
+}
+
+/* 关闭动画 / 输入法组合期间：彻底停用动画与过渡。 */
 body.ime-active :is(#source-pane,#render-pane,#render,.ProseMirror,.cm-editor,.inline-editor),body.ime-active :is(#source-pane,#render-pane) *,
 :root[data-motion="off"] *, :root[data-motion="off"] *::before, :root[data-motion="off"] *::after {
   animation:none!important; transition:none!important; scroll-behavior:auto!important;

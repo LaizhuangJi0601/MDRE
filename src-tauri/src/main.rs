@@ -1,9 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod files;
 mod explorer;
+mod fonts;
 mod persistence;
 mod word;
 mod watch;
+mod window_state;
 mod preferences;
 mod i18n;
 
@@ -156,7 +158,7 @@ fn main() {
         .manage(watch::Watches::default())
         .manage(preferences::SettingsExit::default())
         .invoke_handler(tauri::generate_handler![
-            take_launch_path, preferences::open_settings_window, preferences::open_aux_window, preferences::prepare_settings_shutdown, preferences::settings_shutdown_result, word::detect_pandoc, word::word_convert, watch::watch_files, files::pick_word,
+            take_launch_path, preferences::open_settings_window, preferences::open_aux_window, preferences::prepare_settings_shutdown, preferences::settings_shutdown_result, fonts::list_system_fonts, word::detect_pandoc, word::word_convert, watch::watch_files, files::pick_word,
             files::pick_images, files::clipboard_image_paths,
             explorer::pick_folder, explorer::list_directory, explorer::create_document,
             export_pdf,

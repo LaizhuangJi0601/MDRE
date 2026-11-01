@@ -1,6 +1,6 @@
 import katex from 'katex';
 import type { Model } from '../model';
-import { schema } from '../model';
+import { headingAnchor, schema } from '../model';
 
 // S-2：KaTeX 同步渲染；公式字体由应用随包提供，离线可用。
 export function renderMath(latex: string, display: boolean): string {
@@ -19,20 +19,21 @@ export function renderMath(latex: string, display: boolean): string {
 export type TocEntry = { anchor: string; level: number; text: string };
 
 // S-1/S-3：标题锚点与目录共用同一份 slug 来源，避免渲染与导出不一致。
+// v0.2.7：目录锚点直接取模型里的唯一锚点（与链接解析、大纲、导出同一来源），
+// 仅作为防御在极端情况下保留去重，且后缀基于原始锚点而不是上一次的结果。
 export function tocEntries(model: Model): TocEntry[] {
   const entries: TocEntry[] = [];
   const used = new Set<string>();
-  model.doc.descendants((node, _pos, parent) => {
+  let index = 0;
+  model.doc.descendants(node => {
     if (node.type !== schema.nodes.heading) return true;
-    const index = entries.length + 1;
-    const explicit = (node.attrs.anchor as string | null) ?? null;
-    let anchor = explicit ?? `sec-${(node.textContent || '').trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'section'}-${index}`;
-    // 同文档锚点必须唯一；显式 ID 也在重复时追加序号，不改变原 ID 语义。
-    let suffix = 1;
-    while (used.has(anchor)) anchor = `${explicit ?? anchor}-${++suffix}`;
+    index++;
+    const explicit = (node.attrs.explicitAnchor as string | null) ?? null;
+    const base = (node.attrs.anchor as string | null) ?? headingAnchor(node.textContent || '', explicit, index);
+    let anchor = base, suffix = 1;
+    while (used.has(anchor)) anchor = `${base}-${++suffix}`;
     used.add(anchor);
     entries.push({ anchor, level: Math.min(6, Math.max(1, Number(node.attrs.level ?? 1))), text: (node.textContent || '').trim() || '（空标题）' });
-    void parent;
     return false;
   });
   return entries;

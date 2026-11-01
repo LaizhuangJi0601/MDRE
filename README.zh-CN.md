@@ -5,7 +5,7 @@
 <p align="center"><strong>同一份 Markdown，两种编辑方式。</strong><br>面向 Windows 的 Markdown 编辑、排版与阅读工作区。<br><sub>Windows 10 / 11 · x64 · English / 简体中文</sub></p>
 
 <p align="center">
-  <a href="https://github.com/LaizhuangJi0601/MDRE/blob/main/CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.6-2878d5" alt="Version 0.2.6"></a>
+  <a href="https://github.com/LaizhuangJi0601/MDRE/blob/main/CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.7-2878d5" alt="Version 0.2.7"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5b8c70" alt="MIT license"></a>
   <a href="https://developer.microsoft.com/microsoft-edge/webview2/"><img src="https://img.shields.io/badge/platform-Windows_x64-667085" alt="Windows 10 / 11 · x64"></a>
 </p>
@@ -20,13 +20,13 @@
 
 ## 功能
 
-- **源码与富文本同步编辑。** 两栏保持同步，也可仅显示富文本；标题、列表、链接和文字格式可通过工具栏或右键菜单编辑。
-- **公式、图表与代码。** KaTeX 呈现数学公式，MathLive 提供可视化公式编辑；支持 Mermaid 图表、代码高亮与代码块主题。
-- **按阅读方式排版。** A4 连续或分页视图支持 25%–250% 缩放；非 A4 页宽可在 60%–100% 间调整，正文支持四种对齐方式。
+- **源码与富文本同步编辑。** 两栏保持同步，也可仅显示富文本；标题、列表、链接和文字格式可通过工具栏或右键菜单编辑，页内链接与标题锚点可直接跳转到对应位置。
+- **公式、图表与代码。** KaTeX 呈现数学公式，MathLive 提供可视化公式编辑；支持 Mermaid 图表（流程图、时序图、类图、状态图、甘特图、饼图、ER 图、思维导图、时间线等）、代码高亮与代码块主题。图表源码在显示前会统一规范化，含换行标签、中文或标点符号的标签也能稳定渲染。
+- **按阅读方式排版。** A4 连续或分页视图支持 25%–250% 缩放，缩放值会被记住并应用到之后打开的每个文档；非 A4 页宽可在 60%–100% 间调整，正文支持四种对齐方式。
 - **处理表格与图片。** 调整列宽、对齐、合并和拆分单元格；图片管理按引用顺序列出资源，并可定位到正文。
 - **导出与互通。** 导出 HTML、PDF，或包含 Markdown 与本地图片的 ZIP；支持复制为富文本及 HTML 转 Markdown 粘贴。
-- **Word 转换。** 调用另行安装的 Pandoc 导入、导出 `.docx`，支持常见结构与公式。
-- **按偏好组织工作区。** 提供浅色／深色主题、简体中文／English、视图预设、分类设置、章节导航和可搜索的离线帮助。
+- **Word 转换。** 调用另行安装的 Pandoc 导入、导出 `.docx`，导出的文档与 Markdown 内容一致，不再附加额外标题文字。
+- **按偏好组织工作区。** 提供浅色／深色主题、简体中文／English、视图预设、分类设置，以及读取本机已安装字体的字体选择；切换以约 0.8 秒的原位淡入淡出呈现，并提供章节导航和可搜索的离线帮助。
 
 文件侧栏、标签和最近项目集中在工作区内；支持自动保存、恢复快照、外部文件变更检测及阅读位置恢复。
 
@@ -34,7 +34,7 @@
 
 ## 下载安装
 
-当前构建为 **0.2.6 · updata2**。[更新记录](CHANGELOG.md)汇总版本变化。
+当前构建为 **0.2.7**。[更新记录](CHANGELOG.md)汇总版本变化。
 
 | 版本 | 下载 | 运行要求 |
 | --- | --- | --- |

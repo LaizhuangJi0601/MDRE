@@ -2013,7 +2013,7 @@ dependencies = [
 
 [[package]]
 name = "mdre"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "notify",
  "png 0.17.16",

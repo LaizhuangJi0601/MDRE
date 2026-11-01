@@ -755,5 +755,12 @@
   "设置与导出": "Settings and export",
   "选择视图模式": "Choose view mode",
   "视图模式": "View mode",
-  "新文件名": "New filename"
+  "新文件名": "New filename",
+  "第 {line} 行附近有语法错误": "Syntax error near line {line}",
+  "无法识别图表类型或语法": "Unrecognized diagram type or syntax",
+  "设置已在编辑器内以弹窗打开。": "Settings now open as a dialog inside the editor.",
+  "界面状态键无效。": "Invalid interface-state key.",
+  "界面状态过大。": "Interface state is too large.",
+  "相对链接需要当前文档先保存为文件。": "Relative links require the document to be saved as a file first.",
+  "链接需为 http / https / mailto 地址、页内 #锚点或相对 .md 文件。": "Links must be http(s) / mailto, an in-page #anchor, or a relative .md file."
 }

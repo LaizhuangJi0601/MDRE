@@ -16,11 +16,15 @@ export type Model = { source: string; doc: PMNode; chars: Character[]; atoms: At
 
 const blockAttrs = { id: { default: '' } };
 
+// S-1：标题 slug 只有一份实现：自动锚点、目录、导出与链接解析共用，避免预览与导出出现两套写法。
+// v0.2.7：链接可以直接写 `#中文标题`（GFM/GitHub 习惯），由 resolveAnchor 归一到真实标题 id。
+export function headingSlug(text: string): string {
+  return text.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '');
+}
 // S-1：显式标题 ID 原样保留（不做 slug 规范化），自动锚点只做保守归一。
 export function headingAnchor(text: string, explicit: string | null, index: number): string {
   if (explicit) return explicit;
-  const base = text.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '');
-  return `sec-${base || 'section'}-${index}`;
+  return `sec-${headingSlug(text) || 'section'}-${index}`;
 }
 // 标题源码末尾的显式 ID：`## 方法 {#sec-method}`。只匹配行尾，避免误判正文花括号。
 const headingIdPattern = /\s*\{#([^\s}]+)\}\s*$/;
@@ -28,6 +32,60 @@ export function splitHeadingId(raw: string): { text: string; anchor: string | nu
   const match = headingIdPattern.exec(raw.replace(/(?:\r\n|\r|\n)[ \t]*$/, ''));
   if (!match) return { text: raw, anchor: null };
   return { text: raw.slice(0, match.index), anchor: match[1] };
+}
+
+// v0.2.7 链接/锚点：目标片段先去掉 `#` 再安全解码；畸形编码（如 `#100%`）不抛异常。
+export function decodeAnchorTarget(target: string): string {
+  const raw = target.startsWith('#') ? target.slice(1) : target;
+  try { return decodeURIComponent(raw).trim(); } catch { return raw.trim(); }
+}
+export type AnchorRecord = { anchor: string; explicit: string | null; text: string; level: number; index: number };
+// 页内锚点解析顺序：精确 id → 大小写 → GitHub 风格 slug → 标题文字 → 去掉自动锚点序号。
+// 重复标题（同名、无后缀）按 GitHub 习惯指向第一个；显式 ID 永远优先精确匹配。
+export function matchAnchorRecord(records: readonly AnchorRecord[], target: string): AnchorRecord | null {
+  const wanted = decodeAnchorTarget(target);
+  if (!wanted) return null;
+  const lower = wanted.toLowerCase();
+  const slug = headingSlug(wanted);
+  const exact = records.find(record => record.anchor === wanted);
+  if (exact) return exact;
+  const insensitive = records.find(record => record.anchor.toLowerCase() === lower);
+  if (insensitive) return insensitive;
+  const slashed = slug ? records.find(record => headingSlug(record.text) === slug) : undefined;
+  if (slashed) return slashed;
+  const text = records.find(record => record.text === wanted) ?? records.find(record => record.text.toLowerCase() === lower);
+  if (text) return text;
+  return records.find(record => record.anchor.toLowerCase().replace(/-\d+$/, '') === lower) ?? null;
+}
+export type AnchorMatch = { blockId: string; from: number; anchor: string; level: number; text: string; parent: string | null };
+// 预览点击、大纲与导出共用：把 `#中文标题` / `#sec-...` / `#%E4...` 解析到标题块。
+export function resolveAnchor(model: Model, target: string): AnchorMatch | null {
+  const headings = model.blocks.filter(block => block.type === 'heading');
+  const records: AnchorRecord[] = headings.map((block, position) => {
+    const text = (block.node.textContent || '').trim();
+    return { anchor: String(block.node.attrs.anchor ?? headingAnchor(text, null, position + 1)), explicit: (block.node.attrs.explicitAnchor as string | null) ?? null, text, level: Math.min(6, Math.max(1, Number(block.node.attrs.level ?? 1))), index: position + 1 };
+  });
+  const record = matchAnchorRecord(records, target);
+  if (!record) return null;
+  const block = headings[record.index - 1];
+  return { blockId: block.id, from: block.from, anchor: record.anchor, level: record.level, text: record.text || '（空标题）', parent: block.parent };
+}
+// v0.2.7 跨文件链接：识别相对 .md 目标（可带 #锚点），供点击时交给宿主打开。
+export function markdownDocumentTarget(href: string): { path: string; fragment: string | null } | null {
+  if (!href || href.startsWith('#') || href.startsWith('//') || href.startsWith('\\')) return null;
+  // URL 协议、Windows 盘符（C:\）都不属于相对文档链接。
+  if (/^[a-z][a-z\d+.-]*:/i.test(href)) return null;
+  const hash = href.indexOf('#');
+  const rawPath = (hash >= 0 ? href.slice(0, hash) : href).split('?')[0];
+  if (!/\.(?:md|markdown|mdown|mkd)$/i.test(rawPath)) return null;
+  let path = rawPath;
+  try { path = decodeURIComponent(rawPath); } catch { /* 保留原始相对路径 */ }
+  let fragment: string | null = null;
+  if (hash >= 0 && hash + 1 < href.length) {
+    const rawFragment = href.slice(hash + 1);
+    try { fragment = decodeURIComponent(rawFragment); } catch { fragment = rawFragment; }
+  }
+  return { path, fragment };
 }
 
 export const schema = new Schema({
@@ -109,8 +167,18 @@ export const schema = new Schema({
   },
 });
 
-type Trace = { range: Range; units: Range[] };
+type Trace = { range: Range; units: Range[] | null; uniform: number | null };
 type Traced = Token & { meta: Trace | null };
+// v0.2.7 性能：行内 token 的字符映射只在「不可整段平移」时才建逐字数组；
+// 纯文本（占大文档绝大多数）记录起始偏移 uniform，模型构建时直接 base + index。
+function uniformRange(src: string, from: number, to: number, content: string): boolean {
+  if (to - from !== content.length) return false;
+  for (let i = 0; i < content.length; i++) {
+    const code = src.charCodeAt(from + i);
+    if ((code === 10 ? 32 : code) !== content.charCodeAt(i)) return false;
+  }
+  return true;
+}
 
 // v0.2.5：表格列宽与原始 HTML 表格的解析。列宽统一存百分比数值。
 export type TableAlignValue = 'left' | 'center' | 'right' | '';
@@ -313,6 +381,10 @@ function extensionEnd(state: StateInline, kind: string, length: number): number 
 // 扩展与 Markdown 共用同一行内规则链；未闭合标签按字面量解析。
 markdown.inline.ruler.before('text', 'extensions', (state, silent) => {
   const start = state.pos;
+  // 性能：只有 `<`（<u>）、`{`（颜色/背景/字号）与 `=`（==高亮）可能开启扩展标签；
+  // 先按首字符剪枝，避免在每个行内位置复制剩余源码并跑四个正则（大文档下是主要热点之一）。
+  const code = state.src.charCodeAt(start);
+  if (code !== 0x3c && code !== 0x7b && code !== 0x3d) return false;
   let opening: { kind: string; text: string; closing: string; value?: string } | null = null;
   for (const name of parameterTags) {
     const match = tagSpecs[name].opening.exec(state.src.slice(start, state.posMax));
@@ -329,12 +401,12 @@ markdown.inline.ruler.before('text', 'extensions', (state, silent) => {
     if (kind === 'color') token.attrSet('color', opening.value!);
     else if (kind === 'bg') token.attrSet('bg', opening.value!);
     else if (kind === 'size') token.attrSet('size', opening.value!);
-    token.meta = { range: { from: start, to: start + opening.text.length }, units: [] };
+    token.meta = { range: { from: start, to: start + opening.text.length }, units: [], uniform: null };
     state.pos = start + opening.text.length;
     state.posMax = end;
     state.md.inline.tokenize(state);
     const close = state.push(`${kind}_close`, kind === 'highlight' ? 'mark' : kind === 'underline' ? 'u' : 'span', -1) as Traced;
-    close.meta = { range: { from: end, to: end + opening.closing.length }, units: [] };
+    close.meta = { range: { from: end, to: end + opening.closing.length }, units: [], uniform: null };
     state.posMax = oldMax;
   }
   state.pos = end + opening.closing.length;
@@ -344,8 +416,10 @@ markdown.inline.ruler.before('text', 'extensions', (state, silent) => {
 // S-38：上标 `^x^` 与下标 `~x~`。成对同字符、内容非空且不含未转义空白；
 // `~~` 仍优先判为删除线，代码与转义优先于装饰语法。
 markdown.inline.ruler.before('text', 'sup_sub', (state, silent) => {
+  // 性能：逐字符规则先用字符码剪枝，避免每个位置生成子串。
+  const markerCode = state.src.charCodeAt(state.pos);
+  if (markerCode !== 0x5e && markerCode !== 0x7e) return false;
   const marker = state.src[state.pos];
-  if (marker !== '^' && marker !== '~') return false;
   if (marker === '~' && state.src[state.pos + 1] === '~') return false;
   const kind = marker === '^' ? 'sup' : 'sub';
   let end = state.pos + 1;
@@ -358,12 +432,12 @@ markdown.inline.ruler.before('text', 'sup_sub', (state, silent) => {
     // 链接、图片及扩展配对会以 silent 模式预扫描；成功时仍须消费整个上下标。
     if (silent) { state.pos = at + 1; return true; }
     const token = state.push(`${kind}_open`, kind, 1) as Traced;
-    token.meta = { range: { from: state.pos, to: at + 1 }, units: [] };
+    token.meta = { range: { from: state.pos, to: at + 1 }, units: [], uniform: null };
     const inner = state.push('text', '', 0) as Traced;
     inner.content = content;
-    inner.meta = { range: { from: state.pos + 1, to: at }, units: Array.from({ length: content.length }, (_, index) => ({ from: state.pos + 1 + index, to: state.pos + 2 + index })) };
+    inner.meta = { range: { from: state.pos + 1, to: at }, units: Array.from({ length: content.length }, (_, index) => ({ from: state.pos + 1 + index, to: state.pos + 2 + index })), uniform: null };
     const close = state.push(`${kind}_close`, kind, -1) as Traced;
-    close.meta = { range: { from: at, to: at + 1 }, units: [] };
+    close.meta = { range: { from: at, to: at + 1 }, units: [], uniform: null };
     state.pos = at + 1;
     return true;
   }
@@ -371,20 +445,23 @@ markdown.inline.ruler.before('text', 'sup_sub', (state, silent) => {
 });
 
 // 原生 text 规则不会在 = / { 处停下，增加终止符而不改变其它语法。
+// 性能：逐字符扫描代替「复制剩余源码 + 正则 search」，避免长段落上的 O(n²) 复制。
+const textStop = new Uint8Array(128);
+for (const character of '\n\\`*[]!<&_~={}$^') textStop[character.charCodeAt(0)] = 1;
 markdown.inline.ruler.before('text', 'extension_text', (state, silent) => {
   if (silent) return false;
-  const rest = state.src.slice(state.pos, state.posMax);
-  const stop = rest.search(/[\n\\`*\[\]!<&_~={}$^]/);
-  if (stop === 0) return false;
-  const length = stop < 0 ? rest.length : stop;
-  state.pending += rest.slice(0, length);
-  state.pos += length;
+  const start = state.pos, max = state.posMax, src = state.src;
+  let cursor = start;
+  while (cursor < max) { const code = src.charCodeAt(cursor); if (code < 128 && textStop[code] === 1) break; cursor++; }
+  if (cursor === start) return false;
+  state.pending += src.slice(start, cursor);
+  state.pos = cursor;
   return true;
 });
 
 // S-2：行内公式 `$...$`。`$$` 交由块级规则处理；转义、代码与行内 HTML 优先。
 markdown.inline.ruler.before('escape', 'math_inline', (state, silent) => {
-  if (state.src[state.pos] !== '$' || state.src[state.pos + 1] === '$') return false;
+  if (state.src.charCodeAt(state.pos) !== 0x24 /* $ */ || state.src.charCodeAt(state.pos + 1) === 0x24) return false;
   if (/\s/.test(state.src[state.pos + 1] ?? '')) return false;
   let end = state.pos + 1;
   while (end < state.posMax) {
@@ -398,7 +475,7 @@ markdown.inline.ruler.before('escape', 'math_inline', (state, silent) => {
     if (!silent) {
       const token = state.push('math_inline', 'span', 0) as Traced;
       token.content = latex;
-      token.meta = { range: { from: state.pos, to: at + 1 }, units: [] };
+      token.meta = { range: { from: state.pos, to: at + 1 }, units: [], uniform: null };
     }
     state.pos = at + 1;
     return true;
@@ -414,7 +491,7 @@ markdown.inline.ruler.before('link', 'footnote_ref', (state, silent) => {
   if (!silent) {
     const token = state.push('footnote_ref', 'sup', 0) as Traced;
     token.content = match[1];
-    token.meta = { range: { from: state.pos, to: state.pos + match[0].length }, units: [] };
+    token.meta = { range: { from: state.pos, to: state.pos + match[0].length }, units: [], uniform: null };
   }
   state.pos += match[0].length;
   return true;
@@ -440,7 +517,7 @@ markdown.block.ruler.before('table', 'front_matter', (state) => {
   const offsets = (state as unknown as BlockState);
   token.content = lines.slice(0, end + 1).join('\n');
   token.map = [0, end + 1];
-  token.meta = { range: { from: 0, to: offsets.bMarks[Math.min(end + 1, offsets.bMarks.length - 1)] ?? (state as unknown as BlockState).src.length }, units: [] };
+  token.meta = { range: { from: 0, to: offsets.bMarks[Math.min(end + 1, offsets.bMarks.length - 1)] ?? (state as unknown as BlockState).src.length }, units: [], uniform: null };
   (state as unknown as BlockState).line = end + 1;
   return true;
 }, { alt: ['paragraph', 'reference'] });
@@ -555,8 +632,9 @@ markdown.inline.tokenize = function (state) {
     if (!matched) state.pending += state.src[state.pos++];
     const end = state.pos;
     let cursor = pendingFrom;
-    for (const base of state.tokens.slice(first)) {
-      const token = base as Traced;
+    // 性能：不再为每个 token 复制一次新增 token 数组。
+    for (let index = first; index < state.tokens.length; index++) {
+      const token = state.tokens[index] as Traced;
       if (token.meta) continue;
       let from = cursor, to = end;
       if (token.type === 'link_open') { from = start; to = start + 1; }
@@ -567,14 +645,16 @@ markdown.inline.tokenize = function (state) {
         to = end - token.markup.length;
         if (state.src.slice(from, to).startsWith(' ') && state.src.slice(from, to).endsWith(' ') && token.content.trim()) { from++; to--; }
       } else if (token.type === 'text') to = from + token.content.length;
-      const same = state.src.slice(from, to).replace(/\n/g, ' ') === token.content;
-      token.meta = { range: { from, to }, units: Array.from({ length: token.content.length }, (_, i) => same ? { from: from + i, to: from + i + 1 } : { from, to }) };
+      const uniform = uniformRange(state.src, from, to, token.content);
+      token.meta = uniform
+        ? { range: { from, to }, units: null, uniform: from }
+        : { range: { from, to }, units: Array.from({ length: token.content.length }, () => ({ from, to })), uniform: null };
       cursor = to;
     }
   }
   if (state.pending) {
     const from = state.pos - state.pending.length, token = state.pushPending() as Traced;
-    token.meta = { range: { from, to: state.pos }, units: Array.from({ length: token.content.length }, (_, i) => ({ from: from + i, to: from + i + 1 })) };
+    token.meta = { range: { from, to: state.pos }, units: null, uniform: from };
   }
 };
 function thisMax(state: { md: MarkdownIt }) { return (state.md.options as { maxNesting: number }).maxNesting; }
@@ -606,7 +686,8 @@ markdown.inline.ruler2.push('image_width', state => {
     if (!match.raw.startsWith('{w:')) image.attrSet('dimensions', match.raw);
     text.content = text.content.slice(match.raw.length);
     text.meta.range.from += match.raw.length;
-    text.meta.units = text.meta.units.slice(match.raw.length);
+    if (text.meta.units) text.meta.units = text.meta.units.slice(match.raw.length);
+    else if (text.meta.uniform !== null) text.meta.uniform += match.raw.length;
     if (!text.content) state.tokens.splice(i + 1, 1);
   }
   return false;
@@ -617,8 +698,14 @@ markdown.core.ruler.at('text_join', state => {
 // S-1：剥离标题末尾的 `{#id}`，让锚点不进入正文文本；同时为每个标题确定唯一锚点。
 // 必须早于 text_join，否则子 token 已被合并。
 markdown.core.ruler.before('text_join', 'heading_anchor', state => {
-  const lines = state.src.split('\n');
   const tokens = state.tokens as Traced[];
+  const records: AnchorRecord[] = [];
+  // v0.2.7：标题锚点表写入 env，供 link_anchor 与导出渲染复用，避免各处理一套 slug。
+  (state.env as { headingAnchors?: AnchorRecord[] }).headingAnchors = records;
+  let hasHeading = false;
+  for (const token of tokens) if (token.type === 'heading_open') { hasHeading = true; break; }
+  if (!hasHeading) return;
+  const lines = state.src.split('\n');
   const used = new Set<string>();
   let index = 0;
   for (let i = 0; i < tokens.length; i++) {
@@ -634,7 +721,7 @@ markdown.core.ruler.before('text_join', 'heading_anchor', state => {
         if (child.type !== 'text' || !child.meta) continue;
         const remove = Math.min(excess, child.content.length);
         child.content = child.content.slice(0, child.content.length - remove);
-        child.meta.units = child.meta.units.slice(0, child.meta.units.length - remove);
+        if (child.meta.units) child.meta.units = child.meta.units.slice(0, child.meta.units.length - remove);
         child.meta.range.to = child.meta.range.from + child.content.length;
         excess -= remove;
       }
@@ -656,7 +743,27 @@ markdown.core.ruler.before('text_join', 'heading_anchor', state => {
     used.add(anchor);
     token.attrSet('anchor', anchor);
     if (explicit) token.attrSet('explicit-anchor', explicit);
+    records.push({ anchor, explicit, text: text.trim(), level: Number(token.tag.slice(1)) || 1, index });
   }
+});
+// v0.2.7 链接/锚点：把页内链接 `#中文标题`、`#%E4...`、`#INTRO` 归一到标题真实 id。
+// 只处理以 `#` 开头的片段；跨文件链接（`other.md#x`）与未解析锚点保持源码原样。
+markdown.core.ruler.after('heading_anchor', 'link_anchor', state => {
+  const records = (state.env as { headingAnchors?: AnchorRecord[] }).headingAnchors;
+  if (!records?.length) return;
+  const rewrite = (tokens: Token[]) => {
+    for (const token of tokens) {
+      if (token.type === 'link_open') {
+        const href = token.attrGet('href');
+        if (href && href.length > 1 && href.startsWith('#')) {
+          const match = matchAnchorRecord(records, href);
+          if (match && match.anchor !== href.slice(1)) token.attrSet('href', `#${match.anchor}`);
+        }
+      }
+      if (token.children) rewrite(token.children);
+    }
+  };
+  rewrite(state.tokens as Token[]);
 });
 // 新块级 token 在静态导出中的占位与语义输出；公式与脚注在导出管线中重建。
 markdown.renderer.rules.math_inline = (tokens, i) => `<span class="math-inline" data-latex="${markdown.utils.escapeHtml(tokens[i].content)}"></span>`;
@@ -747,6 +854,27 @@ export function cellSpans(text: string, start: number, end: number): Range[] {
   });
 }
 
+// v0.2.7 性能：块范围末尾连续空行的处理热点。
+// 等价于 /(?:[ \t]*(?:\r\n|\r|\n))+$/ 找到第一行换行后的位置，但直接在源码上倒序扫描，
+// 避免为每个引用/列表块复制整段源码（大文档下是主要分配来源之一）。
+function trailingBreakEnd(text: string, from: number, to: number): number | null {
+  if (to <= from) return null;
+  // 正则的每一段都以换行结束，因此范围末尾必须是换行才可能匹配。
+  const last = text.charCodeAt(to - 1);
+  if (last !== 10 && last !== 13) return null;
+  let start = to;
+  while (start > from) {
+    const code = text.charCodeAt(start - 1);
+    if (code === 32 || code === 9 || code === 10 || code === 13) start--; else break;
+  }
+  for (let i = start; i < to; i++) {
+    const code = text.charCodeAt(i);
+    if (code === 10) return i + 1;
+    if (code === 13) return i + (i + 1 < to && text.charCodeAt(i + 1) === 10 ? 2 : 1);
+  }
+  return null;
+}
+
 export function parse(source: string, previous?: Model, edit?: Range & { insert: string }): Model {
   const view = normalize(source);
   // BOM 属于原文件编码，解析时略过；编辑器偏移仍包含它。
@@ -770,8 +898,8 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
     const f = stack.pop()!;
     // markdown-it 的空引用范围可能包含后续裸空行；这些空行属于顶层段落。
     if (f.type === 'blockquote') {
-      const ending = /(?:[ \t]*(?:\r\n|\r|\n))+$/.exec(source.slice(f.range.from, f.range.to));
-      if (ending) { const first = /\r\n|\r|\n/.exec(ending[0])!; f.range.to = f.range.from + ending.index + first.index + first[0].length; }
+      const end = trailingBreakEnd(source, f.range.from, f.range.to);
+      if (end !== null) f.range.to = end;
     }
     if (f.type === 'blockquote') {
       const children = f.nodes.slice(); f.nodes = [];
@@ -791,8 +919,8 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
       if (!f.nodes.length) addEmpty(f.range.from);
     }
     if (f.type === 'list_item' || f.type === 'bullet_list' || f.type === 'ordered_list') {
-      const ending = /(?:[ \t]*(?:\r\n|\r|\n))+$/.exec(source.slice(f.range.from, f.range.to));
-      if (ending) { const first = /\r\n|\r|\n/.exec(ending[0])!; f.range.to = f.range.from + ending.index + first.index + first[0].length; }
+      const end = trailingBreakEnd(source, f.range.from, f.range.to);
+      if (end !== null) f.range.to = end;
       // 空列表项在 Markdown 中合法；补一个空段落使其可继续输入，与 M3 的空段一致。
       if (f.type === 'list_item' && !f.nodes.length) {
         const id = `b${sequence++}`, node = schema.nodes.paragraph.create({ id });
@@ -806,20 +934,29 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
   }
   let table: { header: boolean; line: number; spans: Range[]; index: number } | null = null;
   // S-4：脚注编号按首次引用顺序，而不是定义顺序。
+  // 性能：没有 `[^` 的常见文档直接跳过整棵 token 树遍历。
   const footnoteOrder: string[] = [];
-  const collectFootnotes = (list: Token[]) => {
-    for (const token of list) {
-      if (token.type === 'footnote_ref' && !footnoteOrder.includes(token.content)) footnoteOrder.push(token.content);
-      if (token.children) collectFootnotes(token.children);
-    }
-  };
-  collectFootnotes(tokens);
+  if (normalized.text.includes('[^')) {
+    const collectFootnotes = (list: Token[]) => {
+      for (const token of list) {
+        if (token.type === 'footnote_ref' && !footnoteOrder.includes(token.content)) footnoteOrder.push(token.content);
+        if (token.children) collectFootnotes(token.children);
+      }
+    };
+    collectFootnotes(tokens);
+  }
   // v0.2.5：GFM 表格后的列宽注释（允许隔空行，取表格后首个）与原始 HTML 表格块。
   let pendingWidths: { startNorm: number; endNorm: number; widths: number[] | null } | null = null;
   let absorbedCommentStart: number | null = null;
   function scanWidthComment(at: number): { startNorm: number; endNorm: number; widths: number[] | null } | null {
-    const gap = /^[ \t]*(?:\n[ \t]*)*/.exec(normalized.text.slice(at))![0];
-    const startNorm = at + gap.length;
+    // 性能：先跳过空白再判断注释开头，避免为每张表复制整段剩余源码。
+    let cursor = at;
+    while (cursor < normalized.text.length) {
+      const code = normalized.text.charCodeAt(cursor);
+      if (code === 32 || code === 9 || code === 10 || code === 13) cursor++; else break;
+    }
+    if (!normalized.text.startsWith('<!--', cursor)) return null;
+    const startNorm = cursor;
     const rest = normalized.text.slice(startNorm);
     const match = /^<!--[ \t]*mdre:table-widths[ \t]*:[ \t]*([^>]*?)[ \t]*-->/.exec(rest);
     if (!match) return null;
@@ -957,21 +1094,36 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
       } else {
         const firstLine = token.map![0];
         const lastLine = token.map![1];
-        const contentLines = token.content.split('\n');
-        let line = firstLine, unmapped = false;
-        for (const part of contentLines) {
-          const rawLine = normalized.text.slice(lines[line], lines[line + 1]).replace(/\n$/, '');
-          const column = rawLine.indexOf(part);
-          if (column < 0) { unmapped = true; break; }
-          for (let c = 0; c < part.length; c++) inlineOffsets.push(normalized.offsets[lines[line] + column + c]);
-          if (line + 1 < lastLine) inlineOffsets.push(normalized.offsets[lines[line + 1] - 1]);
-          line++;
+        let unmapped = false;
+        // 性能：单行行内内容（大文档里绝大多数段落/标题/列表项）直接定位一次，
+        // 省去 split 与逐行 indexOf。
+        if (lastLine - firstLine === 1 && token.content.indexOf('\n') < 0) {
+          const lineStart = lines[firstLine];
+          const rawLine = normalized.text.slice(lineStart, lines[lastLine]).replace(/\n$/, '');
+          const column = rawLine.indexOf(token.content);
+          if (column < 0) unmapped = true;
+          else {
+            const start = lineStart + column;
+            for (let c = 0; c < token.content.length; c++) inlineOffsets.push(normalized.offsets[start + c]);
+            inlineOffsets.push(normalized.offsets[start + token.content.length]);
+          }
+        } else {
+          const contentLines = token.content.split('\n');
+          let line = firstLine;
+          for (const part of contentLines) {
+            const rawLine = normalized.text.slice(lines[line], lines[line + 1]).replace(/\n$/, '');
+            const column = rawLine.indexOf(part);
+            if (column < 0) { unmapped = true; break; }
+            for (let c = 0; c < part.length; c++) inlineOffsets.push(normalized.offsets[lines[line] + column + c]);
+            if (line + 1 < lastLine) inlineOffsets.push(normalized.offsets[lines[line + 1] - 1]);
+            line++;
+          }
+          if (!unmapped) inlineOffsets.push(normalized.offsets[lines[lastLine - 1] + normalized.text.slice(lines[lastLine - 1], lines[lastLine]).replace(/\n$/, '').length]);
         }
         if (unmapped) {
           frame.type = 'opaque'; frame.attrs = { ...frame.attrs, kind: 'source', raw: source.slice(frame.range.from, frame.range.to) }; frame.nodes = [];
           continue;
         }
-        inlineOffsets.push(normalized.offsets[lines[lastLine - 1] + normalized.text.slice(lines[lastLine - 1], lines[lastLine]).replace(/\n$/, '').length]);
         taskPrefix = frame.type === 'paragraph' && stack.at(-2)?.type === 'list_item' && stack.at(-2)?.attrs.checked !== null
           ? /^\[[ xX]\](?:[ \t]+|$)/.exec(token.content)?.[0].length ?? 0 : 0;
       }
@@ -1037,14 +1189,34 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
         else if (child.type === 'text' || child.type === 'code_inline' || child.type === 'softbreak') {
           const content = child.type === 'softbreak' ? '\n' : child.content;
           const active = child.type === 'code_inline' ? schema.marks.code.create().addToSet(marks) : marks;
-          let output = '';
-          for (let c = 0; c < content.length; c++) {
-            const range = child.meta?.units[c] || child.meta!.range;
-            if (range.from < taskPrefix) continue;
-            chars.push({ from: inlineOffsets[range.from], to: inlineOffsets[range.to], pos: local++, text: content[c], marks: active, block: frame.attrs.id as string });
-            output += content[c];
+          const blockId = frame.attrs.id as string;
+          const meta = child.meta!;
+          // 性能：任务清单前缀是全文档最常见的「有偏移」场景；无前缀时直接整段建字，避免逐字符拼串。
+          // uniform 表示该 token 与源码逐字符对应，可直接用 base + index，无需 unit 对象。
+          if (taskPrefix === 0) {
+            if (meta.uniform !== null) {
+              const base = meta.uniform;
+              for (let c = 0; c < content.length; c++) chars.push({ from: inlineOffsets[base + c], to: inlineOffsets[base + c + 1], pos: local++, text: content[c], marks: active, block: blockId });
+            } else {
+              const entries = meta.units ?? [];
+              for (let c = 0; c < content.length; c++) { const unit = entries[c] || meta.range; chars.push({ from: inlineOffsets[unit.from], to: inlineOffsets[unit.to], pos: local++, text: content[c], marks: active, block: blockId }); }
+            }
+            if (content) frame.nodes.push(schema.text(content, active));
+          } else {
+            let output = '';
+            if (meta.uniform !== null) {
+              const base = meta.uniform;
+              for (let c = 0; c < content.length; c++) {
+                if (base + c < taskPrefix) continue;
+                chars.push({ from: inlineOffsets[base + c], to: inlineOffsets[base + c + 1], pos: local++, text: content[c], marks: active, block: blockId });
+                output += content[c];
+              }
+            } else {
+              const entries = meta.units ?? [];
+              for (let c = 0; c < content.length; c++) { const unit = entries[c] || meta.range; if (unit.from < taskPrefix) continue; chars.push({ from: inlineOffsets[unit.from], to: inlineOffsets[unit.to], pos: local++, text: content[c], marks: active, block: blockId }); output += content[c]; }
+            }
+            if (output) frame.nodes.push(schema.text(output, active));
           }
-          if (output) frame.nodes.push(schema.text(output, active));
         } else if (child.type === 'hardbreak') { frame.nodes.push(schema.nodes.hard_break.create(null, null, marks)); local++; }
         else if (child.type === 'image') {
           const width = child.attrGet('width');
@@ -1111,47 +1283,86 @@ export function parse(source: string, previous?: Model, edit?: Range & { insert:
   const headings = blocks.filter(block => block.type === 'heading').sort((a, b) => a.from - b.from);
   const anchors = new Map<string, string>();
   const usedAnchors = new Set<string>();
-  headings.forEach(block => {
+  let needsAnchorRebuild = false;
+  for (let index = 0; index < headings.length; index++) {
+    const block = headings[index];
     // 锚点由 heading_anchor 核心规则唯一确定，导出与预览不会出现两套 slug。
-    const anchor = (block.node.attrs.anchor as string | null) ?? headingAnchor(block.node.textContent || '', null, headings.indexOf(block) + 1);
-    if (usedAnchors.has(anchor)) { const base = anchor; let suffix = 1; let unique = anchor; while (usedAnchors.has(unique)) unique = `${base}-${++suffix}`; usedAnchors.add(unique); anchors.set(block.id, unique); return; }
+    const current = (block.node.attrs.anchor as string | null) ?? null;
+    let anchor = current ?? headingAnchor(block.node.textContent || '', null, index + 1);
+    if (usedAnchors.has(anchor)) { const base = anchor; let suffix = 1; while (usedAnchors.has(anchor)) anchor = `${base}-${++suffix}`; }
     usedAnchors.add(anchor);
+    if (anchor !== current) needsAnchorRebuild = true;
     anchors.set(block.id, anchor);
-  });
+  }
+  // 性能：正常情况下 token 规则已给出唯一锚点，无需为整篇文档重建 ProseMirror 节点树。
   const rebuildAnchors = (node: PMNode): PMNode => node.isText ? node
     : node.type.create(node.type.name === 'heading' ? { ...node.attrs, anchor: anchors.get(node.attrs.id as string) ?? node.attrs.anchor } : node.attrs,
       Array.from({ length: node.childCount }, (_, i) => rebuildAnchors(node.child(i))), node.marks);
-  const anchored = headings.length ? rebuildAnchors(doc) : doc;
-  const doc0 = anchored;
+  const doc0 = needsAnchorRebuild ? rebuildAnchors(doc) : doc;
   const positions = new Map<string, number>();
-  doc0.descendants((node, pos) => { if (node.attrs.id) positions.set(node.attrs.id, pos); });
-  const nodes = new Map<string, PMNode>(); doc0.descendants(node => { if (node.attrs.id) nodes.set(node.attrs.id, node); });
+  const nodes = new Map<string, PMNode>();
+  // 性能：一次 descendants 同时收集位置与节点，避免对大文档遍历两遍。
+  doc0.descendants((node, pos) => {
+    const id = node.attrs.id as string | undefined;
+    if (id) { positions.set(id, pos); nodes.set(id, node); }
+  });
   for (const block of blocks) { block.pos = positions.get(block.id)!; block.node = nodes.get(block.id) ?? block.node; }
-  for (const char of chars) char.pos += positions.get(char.block)! + 1;
-  for (const atom of atoms) atom.pos += positions.get(atom.block)! + 1;
+  // 性能：chars 按块连续生成，位置按块缓存，避免逐字符做 Map 查询。
+  let charBlock = '', charBase = 0;
+  for (const char of chars) {
+    if (char.block !== charBlock) { charBlock = char.block; charBase = positions.get(charBlock)! + 1; }
+    char.pos += charBase;
+  }
+  let atomBlock = '', atomBase = 0;
+  for (const atom of atoms) {
+    if (atom.block !== atomBlock) { atomBlock = atom.block; atomBase = positions.get(atomBlock)! + 1; }
+    atom.pos += atomBase;
+  }
   const model = { source, doc: doc0, chars, atoms, blocks, offsets: view.offsets, nextId: sequence };
   return previous && edit ? retainBlockIds(previous, model, edit) : model;
 }
 
 function retainBlockIds(before: Model, next: Model, edit: Range & { insert: string }): Model {
   const family = (b: Block) => b.node.isTextblock ? 'text' : b.type;
-  const mapped = (offset: number) => offset <= edit.from ? offset : offset >= edit.to ? offset + edit.insert.length - (edit.to - edit.from) : edit.from;
-  const originals = new Map<string, Block[]>();
-  for (const block of before.blocks) {
-    const key = `${family(block)}:${before.source.slice(block.from, block.to)}`;
-    const group = originals.get(key) ?? []; group.push(block); originals.set(key, group);
-  }
+  const delta = edit.insert.length - (edit.to - edit.from);
+  const mapped = (offset: number) => offset <= edit.from ? offset : offset >= edit.to ? offset + delta : edit.from;
+  // 性能：连续输入时绝大多数块既未移动也未改写，先按「编辑映射后的源码区间」直接匹配，
+  // 只有真正落在编辑区或内容变化的块才回退到按原文内容分组，避免为每个块复制整段源码。
+  const byRange = new Map<string, Block>();
+  for (const block of before.blocks) byRange.set(`${family(block)}:${block.from}:${block.to}`, block);
   const ids = new Map<string, string>(), used = new Set<string>();
-  // 先匹配保留的原始片段，包括整块移动；再定位被编辑或分段的块。
+  const unmatched: Block[] = [];
   for (const block of next.blocks) {
-    const candidates = originals.get(`${family(block)}:${next.source.slice(block.from, block.to)}`)?.filter(b => {
-      if (used.has(b.id)) return false;
-      if (b.to <= edit.from) return b.from === block.from && b.to === block.to;
-      if (b.from >= edit.to) { const delta = edit.insert.length - (edit.to - edit.from); return b.from + delta === block.from && b.to + delta === block.to; }
-      return true;
-    });
-    const match = candidates?.sort((a, b) => Math.abs(mapped(a.from) - block.from) - Math.abs(mapped(b.from) - block.from))[0];
-    if (match) { ids.set(block.id, match.id); used.add(match.id); }
+    const length = block.to - block.from;
+    let from: number;
+    if (block.to <= edit.from) from = block.from;
+    else if (block.from >= edit.to) from = block.from - delta;
+    else { unmatched.push(block); continue; }
+    const candidate = byRange.get(`${family(block)}:${from}:${from + length}`);
+    // 编辑区间之外的块内容必然未被修改（区间已按源码映射平移），无需再比较源码切片。
+    if (candidate && !used.has(candidate.id)) {
+      ids.set(block.id, candidate.id); used.add(candidate.id); continue;
+    }
+    unmatched.push(block);
+  }
+  // 整块移动、被编辑或分段的块：按原文内容分组匹配（仅对未匹配的少量块建索引）。
+  if (unmatched.length) {
+    const originals = new Map<string, Block[]>();
+    for (const block of before.blocks) {
+      if (used.has(block.id)) continue;
+      const key = `${family(block)}:${before.source.slice(block.from, block.to)}`;
+      const group = originals.get(key); if (group) group.push(block); else originals.set(key, [block]);
+    }
+    for (const block of unmatched) {
+      const candidates = originals.get(`${family(block)}:${next.source.slice(block.from, block.to)}`)?.filter(candidate => {
+        if (used.has(candidate.id)) return false;
+        if (candidate.to <= edit.from) return candidate.from === block.from && candidate.to === block.to;
+        if (candidate.from >= edit.to) return candidate.from + delta === block.from && candidate.to + delta === block.to;
+        return true;
+      });
+      const match = candidates?.sort((a, b) => Math.abs(mapped(a.from) - block.from) - Math.abs(mapped(b.from) - block.from))[0];
+      if (match) { ids.set(block.id, match.id); used.add(match.id); }
+    }
   }
   for (const block of [...next.blocks].sort((a, b) => a.pos - b.pos || b.node.nodeSize - a.node.nodeSize)) {
     if (ids.has(block.id)) continue;
@@ -1160,12 +1371,17 @@ function retainBlockIds(before: Model, next: Model, edit: Range & { insert: stri
     ids.set(block.id, id); if (match) used.add(match.id);
   }
   next.nextId = Math.max(next.nextId, before.nextId);
-  const rebuild = (node: PMNode): PMNode => node.isText ? node : node.type.create(node.attrs.id ? { ...node.attrs, id: ids.get(node.attrs.id) } : node.attrs, Array.from({ length: node.childCount }, (_, i) => rebuild(node.child(i))), node.marks);
-  next.doc = rebuild(next.doc);
-  const nodes = new Map<string, PMNode>(); next.doc.descendants(node => { if (node.attrs.id) nodes.set(node.attrs.id, node); });
-  for (const block of next.blocks) { block.id = ids.get(block.id)!; block.parent = block.parent ? ids.get(block.parent)! : null; block.node = nodes.get(block.id)!; }
-  for (const char of next.chars) char.block = ids.get(char.block)!;
-  for (const atom of next.atoms) atom.block = ids.get(atom.block)!;
+  // 性能：结构未变化时映射是恒等的，节点、块、字符与原子全部原样保留，无需重建文档树。
+  let identity = true;
+  for (const [beforeId, afterId] of ids) if (beforeId !== afterId) { identity = false; break; }
+  if (!identity) {
+    const rebuild = (node: PMNode): PMNode => node.isText ? node : node.type.create(node.attrs.id ? { ...node.attrs, id: ids.get(node.attrs.id) } : node.attrs, Array.from({ length: node.childCount }, (_, i) => rebuild(node.child(i))), node.marks);
+    next.doc = rebuild(next.doc);
+    const nodes = new Map<string, PMNode>(); next.doc.descendants(node => { if (node.attrs.id) nodes.set(node.attrs.id, node); });
+    for (const block of next.blocks) { block.id = ids.get(block.id)!; block.parent = block.parent ? ids.get(block.parent)! : null; block.node = nodes.get(block.id)!; }
+    for (const char of next.chars) char.block = ids.get(char.block)!;
+    for (const atom of next.atoms) atom.block = ids.get(atom.block)!;
+  }
   return next;
 }
 

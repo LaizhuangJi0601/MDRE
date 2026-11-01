@@ -48,8 +48,6 @@
 #help-dialog #help-empty { margin:32px 0; padding:18px; border:1px dashed var(--border); border-radius:7px; color:var(--muted); }
 #help-dialog #help-link-status { flex-shrink:0; color:var(--danger); font-size:12px; padding:0 22px; overflow-wrap:anywhere; }
 #help-dialog #help-link-status:empty { display:none; }
-#help-dialog .dialog-actions { flex-shrink:0; margin:0; padding:11px 22px; border-top:1px solid var(--border); align-items:center; }
-#help-dialog .help-offline { margin-right:auto; color:var(--muted); font-size:11px; }
 @media(max-width:760px) {
   #help-dialog > .dialog-content { padding:12px 14px 0; gap:12px; }
   #help-dialog .help-layout { gap:14px; }

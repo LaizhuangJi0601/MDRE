@@ -65,6 +65,22 @@ fn absolute(path: &str, extension: &str) -> Result<PathBuf, String> {
     if !path.is_absolute() || !path.extension().is_some_and(|s| s.to_string_lossy().eq_ignore_ascii_case(extension)) { return Err(format!("需要绝对 .{extension} 文件路径")); }
     Ok(path)
 }
+// v0.2.7：导出 HTML 的 <title> 会被 Pandoc HTML reader 当作文档标题插到 DOCX 开头，
+// 用户看到的是“MDRE 文档快照”。前端已不再输出标题，这里再做一层兜底剥离，只删标题标签本身。
+fn strip_html_title(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let mut output = String::with_capacity(html.len());
+    let mut cursor = 0;
+    while let Some(offset) = lower[cursor..].find("<title") {
+        let start = cursor + offset;
+        let Some(tag_end) = lower[start..].find('>') else { break; };
+        let Some(close) = lower[start + tag_end..].find("</title>") else { break; };
+        output.push_str(&html[cursor..start]);
+        cursor = start + tag_end + close + "</title>".len();
+    }
+    output.push_str(&html[cursor..]);
+    output
+}
 #[tauri::command]
 pub async fn word_convert(window: tauri::WebviewWindow, direction: String, tool: String, path: String, html: Option<String>, input: Option<String>, reference: Option<String>) -> Result<Converted, String> {
     if window.label() != "main" { return Err("请在文档窗口中执行转换".into()); }
@@ -77,7 +93,7 @@ pub async fn word_convert(window: tauri::WebviewWindow, direction: String, tool:
         if direction == "export" {
             output = absolute(&path, "docx")?;
             let source = temp.0.join("document.html");
-            let text = html.ok_or("缺少导出内容")?;
+            let text = strip_html_title(&html.ok_or("缺少导出内容")?);
             if text.len() > 128 * 1024 * 1024 { return Err("导出内容超过 128 MiB".into()); }
             fs::write(&source, text).map_err(|e| e.to_string())?;
             args.extend([source.to_string_lossy().into(), "--from=html".into(), "--to=docx".into()]);

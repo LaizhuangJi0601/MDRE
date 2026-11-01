@@ -1,6 +1,6 @@
 import {setupLanguage,t} from './i18n/ui';
 import { openShortcuts } from './ui/shortcuts';
-import {setupMotion,applyMotion,departSurface,highlightTarget} from './ui/motion';
+import {setupMotion,applyMotion,departSurface,highlightTarget,crossfade,revealSurface} from './ui/motion';
 import { setupExternalSync } from './external-sync';
 import { batchHeading, batchConvert } from './batch';
 import { setupReadingWidth, setupWord } from './v026';
@@ -25,7 +25,7 @@ import { Fragment, Slice } from 'prosemirror-model';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { MarkType, Node as PMNode } from 'prosemirror-model';
-import { normalize, parse, schema, markdown, type Atom, type Block, type Model } from './model';
+import { markdownDocumentTarget, normalize, parse, resolveAnchor, schema, markdown, type Atom, type Block, type Model } from './model';
 import { difference, renderedEdit, setImageWidth, setInlineHtml, splitParagraph, joinParagraph, setHeading, swapSibling, toggleTask, type Patch } from './edits';
 import { formulaTarget, formulaEdit, mathUnsupported, type FormulaTarget } from './math-edit';
 import { imagePaths, imagePathsFromText, imageFileUri } from './image-path';
@@ -43,7 +43,7 @@ import { groupToolbar } from './ui/toolbar';
 import { setupFiles } from './ui/files';
 import { icon, type Icon } from './ui/icons';
 import { setupMenus, setupTooltips, setupWindowControls } from './ui/chrome';
-import { captureView, restoreView, divider } from './ui/layout';
+import { captureView, restoreView, divider, applyFocusMode } from './ui/layout';
 import { ScrollSync } from './ui/scroll';
 import { setupDefaultMode, setupTheme } from './ui/theme';
 import { searchPlugin, find, replaceAll, replaceCurrent } from './ui/search';
@@ -89,6 +89,24 @@ let restoringWorkspace = true;
 let externalSync: Awaited<ReturnType<typeof setupExternalSync>> | undefined;
 const workspaceRestoreErrors: string[] = [];
 const filesPanel = setupFiles({ open: openPath, activate: id => action(() => switchTo(id)), fail: reason => error(reason), reveal: () => { toggleOutline(false); status(); }, opened: updateRecentFolder, changed: () => { void rememberWorkspace().catch(reason => error(reason)); } });
+// 侧栏三视图（文件列表 / 图片管理 / 大纲导航）：用原位交叉淡入淡出包住既有切换逻辑，
+// 不改各视图自己的 hidden 实现，桌面版与插件版共用同一段拦截代码。
+// 页签容器由壳层或图片模块创建（图片模块会在启动末尾补 id），因此监听挂在 document 上。
+let sidebarSwitching = false;
+document.addEventListener('click', event => {
+  const button = closestOf<HTMLButtonElement>(event.target, '#sidebar-tabs > button');
+  if (!button || sidebarSwitching) return;
+  event.preventDefault();
+  event.stopPropagation();
+  crossfade([document.getElementById('outline-panel')], () => {
+    sidebarSwitching = true;
+    try {
+      // 用合成事件而不是 button.click()：若外层本来就是程序化 click()，
+      // 浏览器会因“同一元素 click 进行中”忽略嵌套的 click() 调用。
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: window }));
+    } finally { sidebarSwitching = false; }
+  });
+}, true);
 const recoveryRead = await readRecovery();
 // 同一文件可能留下多条恢复快照（多次打开/关闭/异常退出）。按规范化路径只恢复最新一条，
 // 其余在磁盘上清除，避免启动后同一份文件出现多个标签。
@@ -133,13 +151,36 @@ function selection(): Selection {
   return { source: { from: doc.viewToSource(cm.from), to: doc.viewToSource(cm.to) }, render: previewTicket && workspace.accept(previewTicket) ? { from: pm.from, to: pm.to } : doc.selection.render, active: doc.selection.active };
 }
 // 大文档（≥ 1 MB）状态栏改用廉价统计：避免每次按键都遍历整篇渲染文档并做分词。
-function textCounts(doc: DocumentSession) {
+// v0.2.7 性能：字符/词数按文档版本缓存；新版本先用上次结果占位，再在防抖后精确重算。
+// 138KB 级文档每键全篇分词实测约 8~10ms，是输入延迟的主要来源之一。
+const textCountsCache = new WeakMap<DocumentSession, { revision: number; source: string; chars: number; words: number }>();
+let countsTimer: ReturnType<typeof setTimeout> | undefined;
+function computeTextCounts(doc: DocumentSession): { chars: number; words: number } {
   if (sourceBytes(doc.source) >= previewLimit) {
     const text = doc.source;
     return { chars: [...text.replace(/\s/g, '')].length, words: (text.match(/[\p{L}\p{N}]+/gu) ?? []).length };
   }
   const plain = doc.model.doc.textBetween(0, doc.model.doc.content.size, '\n', node => node.type.name === 'opaque' ? String(node.attrs.content || node.attrs.raw || '') : node.type.name === 'image' ? String(node.attrs.alt || '') : node.type.name === 'raw_inline' ? '' : '\n');
   return { chars: [...plain.replace(/\s/g, '')].length, words: Array.from(new Intl.Segmenter('zh', { granularity: 'word' }).segment(plain)).filter(part => part.isWordLike).length };
+}
+function textCounts(doc: DocumentSession): { chars: number; words: number } {
+  const cached = textCountsCache.get(doc);
+  if (cached && cached.revision === doc.revision && cached.source === doc.source) return cached;
+  if (!cached) {
+    const counts = computeTextCounts(doc);
+    textCountsCache.set(doc, { revision: doc.revision, source: doc.source, ...counts });
+    return counts;
+  }
+  if (countsTimer) clearTimeout(countsTimer);
+  const ticket = doc.ticket('counts');
+  countsTimer = setTimeout(() => {
+    countsTimer = undefined;
+    if (!workspace.accept(ticket)) return;
+    const counts = computeTextCounts(doc);
+    textCountsCache.set(doc, { revision: doc.revision, source: doc.source, ...counts });
+    if (workspace.active === doc) $('status-counts').textContent = `${counts.chars} 字符 · ${counts.words} 词`;
+  }, 180);
+  return { chars: cached.chars, words: cached.words };
 }
 function status() {
   const doc = workspace.active;
@@ -155,7 +196,9 @@ function status() {
   $('status-encoding').textContent = doc.encoding.toUpperCase();
   $('status-encoding').title = `文件编码：${doc.encoding.toUpperCase()}${doc.bom ? '（BOM）' : ''}`;
   $('status-position').textContent = doc.readOnly ? '' : `行 ${line.number}，列 ${cursor - line.from + 1}`;
-  $('status-text').textContent = `${saveText}${doc.composition ? ' · 输入中' : ''}${pendingMode ? ' · 待切换模式' : ''}${doc.modelStale ? ' · 模型待刷新' : ''}${doc.recovered ? ' · 恢复副本' : ''}`;
+  // v0.2.7 性能：内容未变时不重写 textContent —— 状态栏有 motion 淡入观察者，重复写入会触发每键强制布局。
+  const statusText = `${saveText}${doc.composition ? ' · 输入中' : ''}${pendingMode ? ' · 待切换模式' : ''}${doc.modelStale ? ' · 模型待刷新' : ''}${doc.recovered ? ' · 恢复副本' : ''}`;
+  if ($('status-text').textContent !== statusText) $('status-text').textContent = statusText;
   $('status-text').dataset.state = doc.saveStatus === 'conflict' || doc.saveStatus === 'failed' ? 'error' : doc.dirty ? 'modified' : 'saved';
   $('status-text').title = doc.saveError || `文档版本 r${doc.revision}${doc.recovered ? '；恢复副本需手动保存后启用自动保存' : ''}`;
   const displayPath = doc.path?.replace(/^\\\\\?\\UNC\\/i, '\\\\').replace(/^\\\\\?\\/, '') ?? '';
@@ -509,11 +552,17 @@ function applyPreview(ticket: Ticket) {
   previewTicket = ticket; render.updateState(render.state.apply(transaction)); doc.renderRevision = ticket.revision;
   $('render').classList.remove('stale'); $('preview-state').textContent = ''; render.setProps({ editable: () => !!workspace.active && !workspace.active.readOnly && !!previewTicket && workspace.accept(previewTicket) });
   syncHint(false);
-  render.dom.querySelectorAll<HTMLButtonElement>('.task-toggle').forEach(button => button.disabled = doc.readOnly);
-  render.dom.querySelectorAll<HTMLTextAreaElement>('.inline-code-editor > textarea').forEach(input => input.readOnly = doc.readOnly);
-  render.dom.querySelectorAll<HTMLSelectElement>('.inline-editor .inline-language').forEach(select => select.disabled = doc.readOnly);
-  render.dom.querySelectorAll<HTMLButtonElement>('.inline-after').forEach(button => button.disabled = doc.readOnly);
-  render.dom.querySelectorAll<HTMLButtonElement>('.diagram-actions button').forEach(button => { if (button.getAttribute('aria-label') === '删除 Mermaid 图') button.hidden = doc.readOnly; else button.textContent = doc.readOnly ? '查看图表源码' : '编辑图表'; });
+  // v0.2.7 性能：一次 DOM 查询 + 按选择器分派，避免每次预览对整棵渲染树遍历 5 遍。
+  for (const element of render.dom.querySelectorAll<HTMLElement>('.task-toggle, .inline-code-editor > textarea, .inline-editor .inline-language, .inline-after, .diagram-actions button')) {
+    if (element.matches('.task-toggle')) (element as HTMLButtonElement).disabled = doc.readOnly;
+    if (element.matches('.inline-code-editor > textarea')) (element as HTMLTextAreaElement).readOnly = doc.readOnly;
+    if (element.matches('.inline-editor .inline-language')) (element as HTMLSelectElement).disabled = doc.readOnly;
+    if (element.matches('.inline-after')) (element as HTMLButtonElement).disabled = doc.readOnly;
+    if (element.matches('.diagram-actions button')) {
+      if (element.getAttribute('aria-label') === '删除 Mermaid 图') (element as HTMLButtonElement).hidden = doc.readOnly;
+      else element.textContent = doc.readOnly ? '查看图表源码' : '编辑图表';
+    }
+  }
   refreshImageHandle();
   if (!$('search-bar').hidden) updateFind();
   scrollSync?.refresh();
@@ -527,8 +576,13 @@ function renderTiming(doc: DocumentSession) {
   hint.hidden = elapsed < 120;
   if (!hint.hidden) {
     const bytes = sourceBytes(doc.source);
-    let math = 0, diagrams = 0;
-    doc.model.doc.descendants(node => { if (node.type.name.startsWith('math_')) math++; if (node.attrs.kind === 'mermaid') diagrams++; });
+    // v0.2.7 性能：公式与图表数量从模型块/原子统计，避免每次预览遍历整篇 ProseMirror 文档。
+    let math = doc.model.atoms.reduce((count, atom) => count + (atom.kind === 'math' ? 1 : 0), 0);
+    let diagrams = 0;
+    for (const block of doc.model.blocks) {
+      if (block.type === 'math_block') math++;
+      else if (block.type === 'opaque' && block.node.attrs.kind === 'mermaid') diagrams++;
+    }
     hint.textContent = `渲染 ${Math.round(elapsed)} ms`;
     hint.title = `解析 ${Math.round(doc.parseMs)} ms，视图 ${Math.round(doc.renderMs)} ms；文档 ${Math.ceil(bytes / 1024)} KB${math ? `，${math} 个公式` : ''}${diagrams ? `，${diagrams} 个 Mermaid 图` : ''}`;
   }
@@ -558,10 +612,17 @@ function schedulePreview(delay = 150, force = false) {
   workspace.active.refreshModel();
   parseTimer = setTimeout(() => applyPreview(ticket), delay);
 }
-let motionDocument='', motionReadOnly=false;
+let documentSignature='';
 function showDocument() {
   const doc = workspace.active;
-  if(doc && (motionDocument!==doc.id || motionReadOnly!==doc.readOnly)){requestAnimationFrame(()=>window.dispatchEvent(new Event('mdre:document-motion')));motionDocument=doc.id;motionReadOnly=doc.readOnly;}
+  // 只有“换文档 / 换模式 / 欢迎页↔文档”才算切换；同一文档内的刷新（撤销、替换、草稿确认）不重播过渡。
+  const signature=`${doc?.id??''}|${doc?.welcome?'welcome':'document'}|${doc?.readOnly?'read':'edit'}`;
+  const animate=signature!==documentSignature&&!restoringWorkspace;
+  documentSignature=signature;
+  crossfade(animate?[$('app')]:[],()=>showDocumentContent());
+}
+function showDocumentContent() {
+  const doc = workspace.active;
   $('welcome').hidden = !!doc && !doc.welcome; $('panes').hidden = false;
   $('panes').classList.toggle('welcome-state', !doc || doc.welcome);
   if (!doc || doc.welcome) { $('outline-list').replaceChildren(); $('outline-count').textContent = ''; $('outline-empty').hidden = false; }
@@ -599,12 +660,15 @@ function toggleSourceVisibility(next = !sourceVisible) {
   const doc = workspace.active;
   if (doc?.composition) throw new Error('请先完成当前输入，再切换源码栏。');
   if (doc) { flushInline(doc); captureView(doc,render,source); }
-  sourceVisible=next; applySourceVisibility();
-  // 欢迎页也可修改默认布局，下一次新建文档会立即采用新设置。
-  if (!doc) return;
-  restoreSelections(); restoreView(doc,render,source);
-  source.requestMeasure({read:()=>doc.ticket('layout'),write:ticket=>{if(workspace.accept(ticket))scrollSync?.reset();}});
-  scrollSync?.reset();
+  // 两栏布局变化交给原位交叉淡入淡出：旧界面在原位置淡出，新宽度在最终位置淡入，不做宽度位移动画。
+  crossfade([$('panes')],()=>{
+    sourceVisible=next; applySourceVisibility();
+    // 欢迎页也可修改默认布局，下一次新建文档会立即采用新设置。
+    if (!doc) return;
+    restoreSelections(); restoreView(doc,render,source);
+    source.requestMeasure({read:()=>doc.ticket('layout'),write:ticket=>{if(workspace.accept(ticket))scrollSync?.reset();}});
+    scrollSync?.reset();
+  });
 }
 function flushInline(doc = workspace.active) { if (doc && workspace.activeId === doc.id && !doc.composition && document.activeElement?.closest('.inline-editor')) (document.activeElement as HTMLElement).blur(); }
 // S-46：反向同步进行中在状态栏给出轻量指示，不打断输入、不弹窗。
@@ -618,10 +682,20 @@ function switchTo(id: string) { flushInline(); if (workspace.active && !workspac
 let draggingTab: string | null = null, autosaveTimer: ReturnType<typeof setInterval> | undefined, allowClose = false, closing = false;
 const pendingChoices = new Map<string, Promise<string>>();
 // 确认类弹窗用非模态 show()：标题栏关闭按钮与 Esc 始终可用，不会把窗口锁死。
-function openFloating(dialog: HTMLDialogElement) { $('scrim').hidden = false; if (!dialog.open) positionDialog(dialog); }
+function openFloating(dialog: HTMLDialogElement) {
+  const scrim=$('scrim');
+  // 遮罩与弹窗都在最终位置由浅变深出现；弹窗自身由 motion.ts 统一淡入。
+  if(scrim.hidden){scrim.hidden=false;revealSurface(scrim);}
+  if (!dialog.open) positionDialog(dialog);
+}
 function closeFloating(dialog: HTMLDialogElement) {
+  const scrim=$('scrim');
   if (dialog.open) dialog.close();
-  if (!document.querySelector('dialog[open]')) $('scrim').hidden = true;
+  // 还有别的真实弹窗打开时遮罩保持不动，避免多个弹窗叠层关闭时遮罩被重复淡出（变暗闪烁）。
+  if ([...document.querySelectorAll<HTMLDialogElement>('dialog[open]')].some(item => !item.closest('.mdre-ghost'))) return;
+  // 关闭最后一个弹窗：遮罩留一张原位快照淡出，弹窗由 motion.ts 的 dialog.close 快照淡出。
+  if(!scrim.hidden)departSurface(scrim);
+  scrim.hidden = true;
 }
 let imageRotation = 0;
 function fitLargeImage() {
@@ -724,8 +798,8 @@ function newBlankTab(): DocumentSession {
 async function reloadFromDisk(doc: DocumentSession) {
   if (!doc.path) throw new Error('当前文档没有文件路径。');
   const file = await readTextFile(doc.path);
-  doc.reloadFrom(doc.source === file.text ? doc.source : file.text, file.fingerprint, file.encoding);
-  showDocument();
+  // 重新加载会整体替换正文：旧内容原位淡出、磁盘版本原位淡入，避免内容瞬间跳到顶部。
+  crossfade([$('app')],()=>{ doc.reloadFrom(doc.source === file.text ? doc.source : file.text, file.fingerprint, file.encoding); showDocument(); });
 }
 // E-1/E.1：保存前先迁移资源；冲突时保留当前内容并给出另存为/重新加载选择。
 async function saveDocument(doc: DocumentSession, as: boolean, explicitPath?: string): Promise<boolean> {
@@ -753,10 +827,15 @@ async function saveDocument(doc: DocumentSession, as: boolean, explicitPath?: st
 async function saveTo(path: string): Promise<boolean> { return saveDocument(workspace.active, false, path); }
 async function autosaveNow(): Promise<void> { await autosaveAll(workspace, saveQueue, () => status()); }
 // G-1/G-2：大纲面板按标题层级生成，点击跳转两栏，跟随视口高亮当前章节。
+// v0.2.7 性能：块表按模型缓存；源码栏输入时活动章节跟随光标，跳过逐块布局查询
+// （大文档下会对渲染栏触发整页强制布局，实测约 20ms/键）。
+const outlineBlocksCache = new WeakMap<Model, Map<string, Block>>();
 function visibleOutlineSource(): number | null {
   const doc = workspace.active; if (!doc || doc.modelStale) return null;
+  if (source.hasFocus && doc.selection.active === 'source') return null;
   const viewport = $('render').getBoundingClientRect();
-  const blocks = new Map(doc.model.blocks.map(block => [block.id, block]));
+  let blocks = outlineBlocksCache.get(doc.model);
+  if (!blocks) { blocks = new Map(doc.model.blocks.map(block => [block.id, block])); outlineBlocksCache.set(doc.model, blocks); }
   for (const element of render.dom.querySelectorAll<HTMLElement>('[data-block]')) {
     const block = blocks.get(element.dataset.block!);
     if (!block || !(block.node.isTextblock || block.node.isAtom)) continue;
@@ -817,15 +896,53 @@ function jumpToOutline(entry: OutlineEntry) {
   // CodeMirror 的异步折行测量结束后再对齐，避免两栏联动把标题拉回旧位置。
   source.requestMeasure({ read: () => doc.ticket('outline'), write: ticket => { if (workspace.accept(ticket)) align(); } });
 }
+// v0.2.7 锚点解析：兼容 `#中文标题`、`#%E4..`、`#INTRO`、显式 ID 与重复标题后缀。
+function jumpToAnchor(target: string): boolean {
+  const doc = workspace.active;
+  if (!doc) return false;
+  const match = resolveAnchor(doc.model, target);
+  if (!match) return false;
+  jumpToOutline({ id: match.blockId, from: match.from, level: match.level, text: match.text, parent: match.parent });
+  return true;
+}
+// v0.2.7 跨文件链接：相对 .md 按当前文档目录解析为宿主可打开的绝对路径。
+function joinDocumentPath(base: string, relative: string): string {
+  const separator = base.includes('\\') ? '\\' : '/';
+  const parts = base.split(/[\\/]+/);
+  for (const part of relative.split(/[\\/]+/)) {
+    if (!part || part === '.') continue;
+    if (part === '..') { if (parts.length > 1) parts.pop(); continue; }
+    parts.push(part);
+  }
+  return parts.join(separator);
+}
+async function openDocumentLink(target: { path: string; fragment: string | null }): Promise<void> {
+  const doc = workspace.active;
+  if (!doc?.path) throw new Error('相对链接需要当前文档先保存为文件。');
+  // 相对路径以“当前文档所在目录”为基准，不能把文件名当成目录拼接。
+  const directory = doc.path.replace(/[\\/][^\\/]*$/, '');
+  const path = joinDocumentPath(directory || doc.path, target.path);
+  // 插件：交给 VS Code 宿主用编辑器打开目标 .md；桌面：在当前窗口新标签打开并可定位锚点。
+  if (isTauri()) {
+    const opened = await openPath(path);
+    if (target.fragment) { if (workspace.activeId !== opened.id) switchTo(opened.id); jumpToAnchor(target.fragment); }
+    return;
+  }
+  await invoke('open_path', { path });
+}
 function toggleOutline(force?: boolean) {
   const panel = $('outline-panel');
-  panel.hidden = force ?? !panel.hidden;
-  $('panes').classList.toggle('has-outline', !panel.hidden);
-  $('outline-toggle').setAttribute('aria-pressed', String(!panel.hidden));
-  const label = panel.hidden ? '展开侧栏' : '收起侧栏';
-  $('outline-toggle').setAttribute('aria-label', label); $('outline-toggle').dataset.tooltip = label;
-  void rememberWorkspace().catch(reason => error(reason));
-  if (!panel.hidden) updateOutline();
+  const mutate=()=>{
+    panel.hidden = force ?? !panel.hidden;
+    $('panes').classList.toggle('has-outline', !panel.hidden);
+    $('outline-toggle').setAttribute('aria-pressed', String(!panel.hidden));
+    const label = panel.hidden ? '展开侧栏' : '收起侧栏';
+    $('outline-toggle').setAttribute('aria-label', label); $('outline-toggle').dataset.tooltip = label;
+    void rememberWorkspace().catch(reason => error(reason));
+    if (!panel.hidden) updateOutline();
+  };
+  // 侧栏显隐会改变主体宽度：旧布局原位淡出，新布局在最终位置淡入，避免内容突然“跳”一下。
+  if (restoringWorkspace) mutate(); else crossfade([$('panes')],mutate);
 }// A-10/D-17/D-18：关闭标签前询问；关掉最后一个标签返回零文档欢迎页。
 async function closeTab(id: string) {
   const doc = workspace.documents.get(id);
@@ -1435,17 +1552,13 @@ render.dom.addEventListener('click', event => {
   if (!link) return;
   event.preventDefault();
   const href = link.getAttribute('href')!;
-  if (!href.startsWith('#') && !event.ctrlKey && !workspace.active.readOnly) return;
+  const documentTarget = markdownDocumentTarget(href);
+  if (!href.startsWith('#') && !documentTarget && !event.ctrlKey && !workspace.active.readOnly) return;
   action(async () => {
+    if (href.startsWith('#')) { jumpToAnchor(href); return; }
+    if (documentTarget) { await openDocumentLink(documentTarget); return; }
     if (!safeUrl(href)) throw new Error('链接地址无效。');
-    if (href.startsWith('#')) {
-      const target = decodeURIComponent(href.slice(1));
-      const model = workspace.active.model;
-      const heading = model.blocks.find(block => block.type === 'heading' && block.node.attrs.anchor === target);
-      const entries = outlineEntries(model);
-      const entry = entries.find(item => item.id === heading?.id) ?? entries.find(item => item.text === target || item.text.toLowerCase().replace(/\s+/g, '-') === target.toLowerCase());
-      if (entry) jumpToOutline(entry);
-    } else if (isTauri()) await invoke('open_external', { url: href });
+    if (isTauri()) await invoke('open_external', { url: href });
     else window.open(href, '_blank', 'noopener,noreferrer');
   });
 });
@@ -1484,7 +1597,7 @@ const handlers: Record<string, () => void | Promise<void>> = {
   'source-toggle': () => toggleSourceVisibility(),
   'sidebar-new': async () => { if (filesPanel.root) { const path = await invoke<string>('create_document', { path: filesPanel.root }); await openPath(path); await filesPanel.openFolder(filesPanel.root); } else newBlankTab(); },
   'sidebar-open': () => openViaPicker(),
-  undo: () => travel(false), redo: () => travel(true), refresh: () => { if (workspace.active.composition) { queuedRefresh = true; status(); } else schedulePreview(0, true); },
+  undo: () => travel(false), redo: () => travel(true), refresh: () => { if (workspace.active.composition) { queuedRefresh = true; status(); } else crossfade([$('panes')],()=>schedulePreview(0, true)); },
   mode: () => setDropdown($('mode-picker'), $('mode-picker').querySelector<HTMLElement>('.dropdown-popup')!.hidden),
   'mode-toggle': () => switchMode(),
   new: () => { newBlankTab(); },
@@ -1494,12 +1607,12 @@ const handlers: Record<string, () => void | Promise<void>> = {
   'welcome-new': () => { newBlankTab(); },
   'new-welcome': () => { const doc = new DocumentSession(crypto.randomUUID(), '', { title: '欢迎页' }); doc.welcome = true; doc.readOnly = true; workspace.add(doc); switchTo(doc.id); },
   'welcome-open': () => $('open').click(),
-  'find-open': () => { $('search-bar').hidden = false; $<HTMLInputElement>('find').focus(); updateFind(); },
-  'replace-open': () => { if (!workspace.active.readOnly) { $('search-bar').hidden = false; $<HTMLInputElement>('replace').focus(); } },
-  'find-close': () => { $('search-bar').hidden = true; find(render, { query: '', regex: false, caseSensitive: false, wholeWord: false }); restoreSelections(); },
+  'find-open': () => crossfade([$('app')],()=>{ $('search-bar').hidden = false; $<HTMLInputElement>('find').focus(); updateFind(); }),
+  'replace-open': () => { if (!workspace.active.readOnly) crossfade([$('app')],()=>{ $('search-bar').hidden = false; $<HTMLInputElement>('replace').focus(); }); },
+  'find-close': () => crossfade([$('app')],()=>{ $('search-bar').hidden = true; find(render, { query: '', regex: false, caseSensitive: false, wholeWord: false }); restoreSelections(); }),
   bold: boldActive,
   underline: () => markActive(schema.marks.underline),
-  'paper-toggle': () => paper.toggle(),
+  'paper-toggle': () => crossfade([$('panes')],()=>paper.toggle()),
   italic: () => markActive(schema.marks.em),
   strike: () => markActive(schema.marks.strike),
   'inline-code': () => markActive(schema.marks.code),
@@ -1523,9 +1636,9 @@ const handlers: Record<string, () => void | Promise<void>> = {
   'close-tab': async () => { await closeTab(workspace.activeId); },
   copy: async () => { await navigator.clipboard.writeText(workspace.active.source); $('status-text').textContent = '已复制完整源码'; },
   // S-35：专注模式只切换界面可见性。
-  'focus-toggle': () => views.focus(),
-  'toolbar-toggle': () => { document.body.classList.toggle('toolbar-hidden'); },
-  'view-full': () => views.select('全量编辑'), 'view-focus': () => views.select('专注模式'), 'view-immersive': () => views.select('沉浸专注'), 'view-a4': () => views.select('A4视图'),
+  'focus-toggle': () => crossfade([$('app')],()=>views.focus()),
+  'toolbar-toggle': () => crossfade([$('app')],()=>{ document.body.classList.toggle('toolbar-hidden'); }),
+  'view-full': () => crossfade([$('app')],()=>views.select('全量编辑')), 'view-focus': () => crossfade([$('app')],()=>views.select('专注模式')), 'view-immersive': () => crossfade([$('app')],()=>views.select('沉浸专注')), 'view-a4': () => crossfade([$('app')],()=>views.select('A4视图')),
   // S-42：最近打开列表展开（菜单项本身也是可点元素）。
   'recent-menu': () => { const list = $('recent-list'); list.hidden = !list.hidden; $('recent-folder-list').hidden = true; },
   'recent-folder-menu': () => { const list = $('recent-folder-list'); list.hidden = !list.hidden; $('recent-list').hidden = true; },
@@ -1615,8 +1728,12 @@ $('confirm').onclick = () => {
 };
 $('link-confirm').onclick = () => action(() => {
   restoreFormat('link');
-  const href = $<HTMLInputElement>('link-url').value.trim();
-  if (!safeUrl(href)) throw new Error('链接需为 http / https / mailto 地址。');
+  const input = $<HTMLInputElement>('link-url').value.trim();
+  const documentTarget = markdownDocumentTarget(input);
+  if (!safeUrl(input) && !documentTarget) throw new Error('链接需为 http / https / mailto 地址、页内 #锚点或相对 .md 文件。');
+  // 页内锚点统一存为标题的真实 id，避免手动输入 `#中文标题` / 大小写差异后点击无目标。
+  let href = input;
+  if (href.startsWith('#')) { const match = resolveAnchor(workspace.active.model, href); if (match) href = `#${match.anchor}`; }
   markActive(schema.marks.link, { href, title: '' });
   closeFloating($('link-dialog'));
 });
@@ -1921,10 +2038,10 @@ document.addEventListener('keydown', event => {
   if (key === 'tab') { event.preventDefault(); action(() => cycleTab(event.shiftKey ? -1 : 1)); }
   else if (key === 'w') { event.preventDefault(); action(async () => { await closeTab(workspace.activeId); }); }
   else if (key === 'o' && event.shiftKey) { event.preventDefault(); toggleOutline(); }
-  else if (key === 'r' && event.shiftKey) { event.preventDefault(); action(() => { if (!workspace.active.composition) schedulePreview(0, true); }); }
+  else if (key === 'r' && event.shiftKey) { event.preventDefault(); action(() => { if (!workspace.active.composition) crossfade([$('app')],()=>schedulePreview(0, true)); }); }
   else if (key === 'v' && event.shiftKey) { event.preventDefault(); action(switchMode); }
-  else if (key === 'f') { event.preventDefault(); $('search-bar').hidden = false; $<HTMLInputElement>('find').focus(); }
-  else if (key === 'h') { event.preventDefault(); if (!workspace.active.readOnly) { $('search-bar').hidden = false; $<HTMLInputElement>('replace').focus(); } }
+  else if (key === 'f') { event.preventDefault(); crossfade([$('app')],()=>{ $('search-bar').hidden = false; $<HTMLInputElement>('find').focus(); }); }
+  else if (key === 'h') { event.preventDefault(); if (!workspace.active.readOnly) crossfade([$('app')],()=>{ $('search-bar').hidden = false; $<HTMLInputElement>('replace').focus(); }); }
   else if (workspace.active.readOnly && ['b', 'i', 'z', 'y', 'k', '1', '2', '3', '4', '5', '6'].includes(key)) event.preventDefault();
   else if (!$<HTMLDialogElement>('dialog').open && !$<HTMLDialogElement>('pdf-dialog').open && (document.activeElement?.closest('.cm-editor, .ProseMirror') || document.activeElement === document.body) && (key === 'b' || key === 'i' || key === 'k' || /^[1-6]$/.test(key))) {
     event.preventDefault(); action(() => key === 'b' ? boldActive() : key === 'i' ? markActive(schema.marks.em) : key === 'k' ? openLinkDialog() : headingActive(Number(key)));
@@ -1939,7 +2056,7 @@ document.addEventListener('keydown', event => {
   if (closestOf(event.target, '#settings-shortcuts input')) return;
   if ($<HTMLDialogElement>('math-dialog').open && event.key === 'Escape' && !event.isComposing) { event.preventDefault(); event.stopImmediatePropagation(); cancelMathDraft(); return; }
   if (event.key !== 'Escape' || event.defaultPrevented) return;
-  const dialog = document.querySelector<HTMLDialogElement>('dialog[open]');
+  const dialog = [...document.querySelectorAll<HTMLDialogElement>('dialog[open]')].filter(item => !item.closest('.mdre-ghost')).at(-1);
   if (!dialog) return;
   event.preventDefault();
   if (typeof dialog.oncancel === 'function') { dialog.dispatchEvent(new Event('cancel')); return; }
@@ -1980,6 +2097,12 @@ const refreshTheme = await setupTheme($<HTMLSelectElement>('theme'), dark => {
   setDiagramTheme(dark);
   if (workspace.active && !workspace.active.composition) applyPreview(workspace.active.ticket('theme'));
 }, error);
+// 主题切换走整窗原位交叉淡入淡出：旧配色在原位置由深变浅，新配色在应显示位置由浅变深，不做色彩突变。
+{
+  const themeSelect = $<HTMLSelectElement>('theme');
+  const applyThemeSelection = themeSelect.onchange as ((this: unknown, event: Event) => void) | null;
+  themeSelect.onchange = () => { crossfade([$('app')], () => { applyThemeSelection?.call(themeSelect, new Event('change')); }); };
+}
 setupDefaultMode($<HTMLSelectElement>('default-mode'), error);
 // S-45：正文与等宽字体、字号与行距写入 CSS 变量，两栏与导出同步生效。
 function applyTypography() {
@@ -1993,14 +2116,16 @@ function applyTypography() {
 }
 applyTypography();
 // S-45：字体列表来自系统可用字体，取不到时回落到内置候选。
+// v0.2.7：桌面版通过 Rust 命令枚举本机字体（与设置弹窗共用同一数据源）。
+let systemFonts: string[] = [];
 function fontChoices(mono: boolean): string[] {
   const fallback = mono
     ? ['Consolas', 'Cascadia Mono', 'JetBrains Mono', 'Fira Code', 'Courier New', 'monospace']
     : ['Microsoft YaHei', 'Segoe UI', 'SimSun', 'KaiTi', 'Noto Sans SC', 'sans-serif'];
   try {
     const available = Array.from(document.fonts).map(face => face.family.replace(/^["']|["']$/g, ''));
-    return Array.from(new Set([...available, ...fallback])).slice(0, 60);
-  } catch { return fallback; }
+    return Array.from(new Set([...systemFonts, ...available, ...fallback])).slice(0, 200);
+  } catch { return Array.from(new Set([...systemFonts, ...fallback])); }
 }
 function setupTypographyControls() {
   const current = settings();
@@ -2214,21 +2339,32 @@ const views = setupViewPresets({
   read: () => ({ paper: paper.enabled, source: sourceVisible, sidebar: !$('outline-panel').hidden, toolbar: !document.body.classList.contains('toolbar-hidden') }),
   apply: state => { if (workspace.active?.composition) throw new Error('请先完成当前输入，再切换视图。'); toggleSourceVisibility(state.source); toggleOutline(!state.sidebar); document.body.classList.toggle('toolbar-hidden', !state.toolbar); paper.set(state.paper); }, fail: error,
 });
+// 专注模式的悬浮退出按钮由 layout.ts 直接调用，这里补同一次整窗交叉淡入淡出，与 F11 退出保持一致的观感。
+document.addEventListener('click', event => {
+  if (!closestOf<HTMLElement>(event.target, '#focus-exit')) return;
+  event.preventDefault(); event.stopPropagation();
+  crossfade([$('app')], () => applyFocusMode(false));
+}, true);
 // S-45/S-47/S-42：字体与快捷键控件、最近打开列表、菜单快捷键提示。
 try {
   setupTypographyControls();
+  // 本机字体异步补齐后重建字体下拉，不阻塞启动；命令缺失或非桌面环境时静默回落。
+  if (isTauri()) void invoke<string[]>('list_system_fonts').then(list => { systemFonts = list; setupTypographyControls(); }).catch(() => {});
   const applyPreferences=()=>{
-    applyMotion();
-    $<HTMLSelectElement>('theme').value = settings().theme;
-    $<HTMLSelectElement>('default-mode').value = settings().default_mode;
-    applyTypography(); setupTypographyControls(); splitControl.resize(settings().split); paper.refresh(); sidebar.refresh(); refreshTheme(); renderMenuShortcuts();
-    if (sourceDefault !== settings().show_source) {
-      sourceDefault=settings().show_source;
-      toggleSourceVisibility(sourceDefault);
-    }
-    views.restore();
-    $('status-text').textContent = '设置已保存';
-    window.dispatchEvent(new Event('mdre:settings-applied'));
+    // 设置应用会同时改变主题、字体、A4、侧栏与视图预设：整窗做一次原位交叉淡入淡出，避免界面“闪一下”。
+    crossfade([$('app')],()=>{
+      applyMotion();
+      $<HTMLSelectElement>('theme').value = settings().theme;
+      $<HTMLSelectElement>('default-mode').value = settings().default_mode;
+      applyTypography(); setupTypographyControls(); splitControl.resize(settings().split); paper.refresh(); sidebar.refresh(); refreshTheme(); renderMenuShortcuts();
+      if (sourceDefault !== settings().show_source) {
+        sourceDefault=settings().show_source;
+        toggleSourceVisibility(sourceDefault);
+      }
+      views.restore();
+      $('status-text').textContent = '设置已保存';
+      window.dispatchEvent(new Event('mdre:settings-applied'));
+    });
   };
   let preferencesReady:Promise<unknown>|undefined;
   const ensurePreferences=()=>preferencesReady??=import('./ui/preferences').then(module=>module.setupPreferences({open:openFloating,close:closeFloating,fonts:fontChoices,applied:applyPreferences}));

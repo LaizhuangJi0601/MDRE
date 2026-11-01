@@ -8,11 +8,83 @@ import { settings, saveSettings, shortcutCommands, defaults, type Settings } fro
 const documents = import.meta.glob('../../docs/help/**/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const references = import.meta.glob('../../docs/licenses/*.{md,txt}', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
 export type PreferencesDraft = { patch: Partial<Settings>; values: Record<string,string>; valid: boolean };
-type Options = { open: (dialog: HTMLDialogElement) => void; close: (dialog: HTMLDialogElement) => void; applied: () => void; fonts: (mono: boolean) => string[]; draftChanged?: (draft: PreferencesDraft) => Promise<void>; openSettings?: () => void };
+// S-45 / v0.2.7 需求 5.3：字体候选来自本机已安装字体，失败或非 Windows 时回落到内置列表。
+const FALLBACK_FONTS = {
+  body: ['Microsoft YaHei', 'Segoe UI', 'SimSun', 'KaiTi', 'Noto Sans SC', 'sans-serif'],
+  mono: ['Consolas', 'Cascadia Mono', 'JetBrains Mono', 'Fira Code', 'Courier New', 'monospace'],
+};
+let systemFontsPromise: Promise<string[]> | undefined;
+let systemFonts: string[] = [];
+// 枚举结果由宿主缓存；这里再做一层进程内缓存，多个设置弹窗共用一次请求。
+const loadSystemFonts = () => systemFontsPromise ??= (async () => {
+  try {
+    const value = await invoke<string[]>('list_system_fonts');
+    systemFonts = Array.isArray(value) ? value.filter(font => typeof font === 'string' && font.trim()).map(font => font.trim()) : [];
+  } catch { systemFonts = []; }
+  return systemFonts;
+})();
+void loadSystemFonts();
+// v0.2.7 需求 5.2：记住设置弹窗上次显示的位置与尺寸，关闭后再次打开回到原处。
+type DialogBounds = { left: number; top: number; width: number; height: number };
+const BOUNDS_STORAGE_KEY = 'mdre.settings.dialog.bounds';
+const desktopApp = (() => { try { return isTauri(); } catch { return false; } })();
+let rememberedBounds: DialogBounds | null = null;
+let boundsRequested = false;
+const sanitizeBounds = (value: unknown): DialogBounds | null => {
+  if (!value || typeof value !== 'object') return null;
+  const source = value as Record<string, unknown>;
+  const bounds = {} as DialogBounds;
+  for (const key of ['left', 'top', 'width', 'height'] as const) {
+    const number = Number(source[key]);
+    if (!Number.isFinite(number)) return null;
+    bounds[key] = number;
+  }
+  if (bounds.width < 200 || bounds.height < 160 || bounds.width > 8000 || bounds.height > 8000) return null;
+  return bounds;
+};
+// 插件端把位置存进扩展 globalState，跨编辑器标签仍保持一致；桌面端用 localStorage。
+const updateRememberedBounds = async () => {
+  if (boundsRequested) return;
+  boundsRequested = true;
+  if (!desktopApp) {
+    try {
+      const value = await invoke<unknown>('read_ui_state', { key: BOUNDS_STORAGE_KEY });
+      rememberedBounds = sanitizeBounds(value);
+      if (rememberedBounds) return;
+    } catch { /* 宿主没有该接口时继续使用 localStorage */ }
+  }
+  try { rememberedBounds = sanitizeBounds(JSON.parse(localStorage.getItem(BOUNDS_STORAGE_KEY) || 'null')); } catch { rememberedBounds = null; }
+};
+void updateRememberedBounds();
+const rememberDialogBounds = (dialog: HTMLDialogElement) => {
+  if (!dialog.open || dialog.dataset.maximized === 'true' || document.body.dataset.settingsWindow) return;
+  const rect = dialog.getBoundingClientRect();
+  const bounds = sanitizeBounds({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+  if (!bounds) return;
+  rememberedBounds = bounds;
+  try { localStorage.setItem(BOUNDS_STORAGE_KEY, JSON.stringify(bounds)); } catch { /* 存储不可用时只保留在内存 */ }
+  if (!desktopApp) void invoke('write_ui_state', { key: BOUNDS_STORAGE_KEY, value: bounds }).catch(() => {});
+};
+const applyDialogBounds = (dialog: HTMLDialogElement) => {
+  if (document.body.dataset.settingsWindow) return;
+  const saved = rememberedBounds;
+  if (!saved) return;
+  const width = Math.max(320, Math.min(saved.width, innerWidth - 24));
+  const height = Math.max(240, Math.min(saved.height, innerHeight - 24));
+  dialog.dataset.moved = 'true';
+  dialog.style.maxWidth = 'none';
+  dialog.style.maxHeight = 'none';
+  dialog.style.width = `${width}px`;
+  dialog.style.height = `${height}px`;
+  const rect = dialog.getBoundingClientRect();
+  dialog.style.left = `${Math.max(12, Math.min(saved.left, innerWidth - rect.width - 12))}px`;
+  dialog.style.top = `${Math.max(12, Math.min(saved.top, innerHeight - rect.height - 12))}px`;
+};
+type Options = { open: (dialog: HTMLDialogElement) => void; close: (dialog: HTMLDialogElement) => void; applied: () => void; fonts: (mono: boolean) => string[]; draftChanged?: (draft: PreferencesDraft) => Promise<void>; draftCleared?: () => void; openSettings?: () => void };
 export function setupPreferences(options: Options) {
   const dialog = document.createElement('dialog'); dialog.id = 'settings-dialog'; dialog.dataset.cancel = 'settings-cancel';
   dialog.setAttribute('aria-label', '设置');
-  dialog.innerHTML = `<form id="settings-form">
+  dialog.innerHTML = `${document.body.dataset.settingsWindow ? '' : '<h3>设置</h3>'}<form id="settings-form">
     <fieldset><legend>外观与阅读</legend><div class="settings-grid">
       <label>语言<select name="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
       <label>颜色主题<select name="theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
@@ -64,6 +136,24 @@ export function setupPreferences(options: Options) {
   for(const label of form.querySelectorAll('.settings-grid label')) { const text=label.firstChild!; const strong=document.createElement('strong'); strong.textContent=text.textContent; text.replaceWith(strong); }
   form.before(search,layout); layout.append(navigation,form); search.querySelector('input')!.oninput=filterSettings;
   const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement;
+  // v0.2.7：字体下拉先放已知候选，本机字体读取完成后再补齐，保证弹窗立即打开。
+  const fillFontSelect = (select: HTMLSelectElement, mono: boolean, value: string) => {
+    const current = value || select.value || '';
+    const families = [...new Set([...systemFonts, ...FALLBACK_FONTS[mono ? 'mono' : 'body'], ...options.fonts(mono)])];
+    const choices = ['', ...(current ? [current] : []), ...families.filter(family => family !== current)];
+    select.replaceChildren(...choices.map(family => new Option(family || '默认', family)));
+    select.value = current;
+  };
+  const refreshFontSelects = () => {
+    for (const [name, mono] of [['font_body', false], ['font_mono', true]] as const) {
+      const select = field(name) as HTMLSelectElement;
+      if (select) fillFontSelect(select, mono, select.value);
+    }
+  };
+  const loadFontsIntoDialog = () => {
+    // 不新增可见文案：读取结果只体现在字体下拉的可选项中（失败时保留内置候选）。
+    void loadSystemFonts().then(() => { if (dialog.open) refreshFontSelects(); });
+  };
   // 自动检测结果仅用于显示，保持自动模式；只有用户编辑或浏览才固定路径。
   let manualPandoc='', pandocGeneration=0, detected=false;
   const pandocInput=field('pandoc_path') as HTMLInputElement;
@@ -79,22 +169,30 @@ export function setupPreferences(options: Options) {
   const sizeBounds = () => { const size = field('font_size') as HTMLInputElement; size.min = fontUnit === 'px' ? '8' : '0.5'; size.max = fontUnit === 'px' ? '32' : '2'; };
   field('font_unit').onchange = () => { const next = field('font_unit').value as 'px' | 'em'; field('font_size').value = String(convertFontSize(Number(field('font_size').value), fontUnit, next)); fontUnit = next; sizeBounds(); };
   const cancel = dialog.querySelector<HTMLButtonElement>('#settings-cancel')!;
-  cancel.onclick = () => options.close(dialog);
-  dialog.oncancel = event => { event.preventDefault(); options.close(dialog); };
+  // 关闭前记录当前位置；同时清理草稿，避免已取消的修改在重启后被合并。
+  const closeDialog = () => { options.draftCleared?.(); rememberDialogBounds(dialog); options.close(dialog); };
+  cancel.onclick = () => closeDialog();
+  dialog.oncancel = event => { event.preventDefault(); closeDialog(); };
   form.onsubmit = event => { event.preventDefault(); dialog.querySelector<HTMLButtonElement>('#settings-save')!.click(); };
+  // 无效草稿恢复的提示在对话框打开时保留一次，避免被打开流程清空。
+  let restoredDraftNotice = false;
+  let pendingDraft: PreferencesDraft | null = null;
   document.getElementById('settings-open')!.onclick = () => {
     if(options.openSettings && !document.body.dataset.settingsWindow){options.openSettings();return;}
     if (isTauri() && !document.body.dataset.settingsWindow) { void invoke('open_settings_window').catch(reason => { dialog.querySelector('#settings-error')!.textContent=String(reason); options.open(dialog); }); return; }
     const saved = settings(), view = saved.last_view;
     const current = view ? { ...saved, paper_enabled: view.paper, show_source: view.source, sidebar_visible: view.sidebar, toolbar_visible: view.toolbar } : saved;
     for (const [name, mono] of [['font_body', false], ['font_mono', true]] as const) {
-      const select = field(name) as HTMLSelectElement;
-      select.replaceChildren(...[...new Set(['', current[name], ...options.fonts(mono)])].map(value => new Option(value || '默认', value)));
+      fillFontSelect(field(name) as HTMLSelectElement, mono, String(current[name]));
     }
     for (const name of ['language', 'reading_align', 'pandoc_path', 'word_reference', 'font_unit', 'sidebar_visible', 'toolbar_visible', 'theme', 'motion', 'code_theme', 'default_mode', 'show_source', 'font_body', 'font_mono', 'font_size', 'line_height', 'split', 'backup_count', 'paper_enabled', 'paper_layout', 'paper_align', 'image_layout', 'sidebar_width', 'file_list_ratio', 'outline_collapsed'] as const) field(name).value = String(current[name]);
     manualPandoc=current.pandoc_path; detected=false; pandocGeneration++; filterSettings();
     fontUnit = current.font_unit; sizeBounds(); paintPreview();
-    dialog.querySelector('#settings-error')!.textContent = ''; dialog.querySelector('#settings-tool-status')!.textContent = '';
+    // 打开前宿主报告的无效草稿：载入当前设置后再覆盖，保证草稿优先。
+    if(pendingDraft){const draft=pendingDraft;pendingDraft=null;applyDraftValues(draft);restoredDraftNotice=true;}
+    const error=dialog.querySelector('#settings-error')!;
+    error.textContent=restoredDraftNotice?'上次退出时存在无效设置，草稿已恢复，请修正后保存。':'';
+    restoredDraftNotice=false; dialog.querySelector('#settings-tool-status')!.textContent = '';
     dialog.querySelector('#settings-shortcuts')!.replaceChildren(...shortcutCommands.map(command => {
       const row = document.createElement('label'); row.className = 'shortcut-row'; row.append(command.label);
       const input = document.createElement('input'); input.dataset.shortcut = command.id; input.value = current.shortcuts[command.id] ?? command.fallback;
@@ -109,7 +207,10 @@ export function setupPreferences(options: Options) {
       };
       row.append(input); return row;
     }));
-    options.open(dialog); search.querySelector('input')!.focus({ preventScroll: true }); form.scrollTop = 0;
+    options.open(dialog); applyDialogBounds(dialog);
+    void updateRememberedBounds().then(()=>{ if(dialog.open) applyDialogBounds(dialog); });
+    loadFontsIntoDialog();
+    search.querySelector('input')!.focus({ preventScroll: true }); form.scrollTop = 0;
     dialog.querySelector<HTMLElement>('.dialog-content')?.scrollTo(0, 0);
   };
   let saving: Promise<boolean> | undefined;
@@ -148,7 +249,7 @@ export function setupPreferences(options: Options) {
     if(invalid){active=sections.findIndex(section=>section.contains(invalid));search.querySelector('input')!.value='';filterSettings();invalid.reportValidity();dialog.querySelector('#settings-error')!.textContent='请先修正无效设置，再保存或退出应用。';return false;}
     const button = dialog.querySelector<HTMLButtonElement>('#settings-save')!; button.disabled = cancel.disabled = true;
     const patch=collect();
-    try { await saveSettings(patch); dialog.querySelector('#settings-error')!.textContent=''; options.applied(); window.dispatchEvent(new Event('mdre:settings-applied')); if(close) options.close(dialog); return true; }
+    try { await saveSettings(patch); options.draftCleared?.(); dialog.querySelector('#settings-error')!.textContent=''; options.applied(); window.dispatchEvent(new Event('mdre:settings-applied')); if(close) { rememberDialogBounds(dialog); options.close(dialog); } return true; }
     catch (reason) { dialog.querySelector('#settings-error')!.textContent = reason instanceof Error ? reason.message : String(reason); return false; }
     finally { button.disabled = cancel.disabled = false; }
   };
@@ -190,14 +291,25 @@ export function setupPreferences(options: Options) {
     if(!isTauri())throw new Error('请在桌面应用中打开外部链接。');
     await invoke('open_external',{url});
   }});
+  // 弹窗位置由拖动 / 缩放时的内联样式变化驱动，合并为 250ms 一次记录。
+  let boundsTimer:ReturnType<typeof setTimeout>|undefined;
+  new MutationObserver(()=>{
+    clearTimeout(boundsTimer);
+    boundsTimer=setTimeout(()=>{boundsTimer=undefined;rememberDialogBounds(dialog);},250);
+  }).observe(dialog,{attributes:true,attributeFilter:['style']});
   filterSettings();
-  // 主应用确认退出后调用；普通取消或单独关闭窗口仍不提交草稿。
-  return { saveDraft: () => apply(false), restoreDraft: (draft: PreferencesDraft) => {
+  const applyDraftValues = (draft: PreferencesDraft) => {
     for(const [key,value] of Object.entries(draft.values)){
       const input=key.startsWith('shortcut:') ? form.querySelector<HTMLInputElement>(`[data-shortcut="${CSS.escape(key.slice(9))}"]`) : form.elements.namedItem(key) as HTMLInputElement|null;
       if(input)input.value=value;
     }
     manualPandoc=field('pandoc_path').value; detected=false; pandocGeneration++;fontUnit=field('font_unit').value as 'px'|'em';sizeBounds();paintPreview();
     dialog.querySelector('#settings-error')!.textContent='上次退出时存在无效设置，草稿已恢复，请修正后保存。';
+  };
+  // 主应用确认退出后调用；普通取消或单独关闭窗口仍不提交草稿。
+  return { saveDraft: () => apply(false), restoreDraft: (draft: PreferencesDraft) => {
+    // 对话框尚未打开时暂存草稿，等打开并载入当前设置后再覆盖。
+    if(!dialog.open){pendingDraft=draft;return;}
+    applyDraftValues(draft);
   } };
 }

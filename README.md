@@ -5,7 +5,7 @@
 <p align="center"><strong>One Markdown document. Two ways to edit.</strong><br>A Windows workspace for Markdown editing, layout, and reading.<br><sub>Windows 10 / 11 · x64 · English / 简体中文</sub></p>
 
 <p align="center">
-  <a href="https://github.com/LaizhuangJi0601/MDRE/blob/main/CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.6-2878d5" alt="Version 0.2.6"></a>
+  <a href="https://github.com/LaizhuangJi0601/MDRE/blob/main/CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.7-2878d5" alt="Version 0.2.7"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5b8c70" alt="MIT license"></a>
   <a href="https://developer.microsoft.com/microsoft-edge/webview2/"><img src="https://img.shields.io/badge/platform-Windows_x64-667085" alt="Windows 10 / 11 · x64"></a>
 </p>
@@ -20,13 +20,13 @@
 
 ## Features
 
-- **Edit source and rich text together.** Keep both panes synchronized, or work in rich text alone. Format headings, lists, links, and text through the toolbar and context menus.
-- **Write equations, diagrams, and code.** Render math with KaTeX, edit equations visually with MathLive, and use Mermaid diagrams, syntax highlighting, and code block themes.
-- **Choose a reading layout.** Use continuous or paged A4 views with 25%–250% zoom. Outside A4, adjust reading width from 60% to 100% and choose one of four text alignments.
+- **Edit source and rich text together.** Keep both panes synchronized, or work in rich text alone. Format headings, lists, links, and text through the toolbar and context menus; in-document links and heading anchors jump to the right place.
+- **Write equations, diagrams, and code.** Render math with KaTeX, edit equations visually with MathLive, and use Mermaid diagrams (flowchart, sequence, class, state, gantt, pie, ER, mindmap, timeline and more), syntax highlighting, and code block themes. Diagram source is normalized before display, so labels with line breaks, Chinese text, or punctuation render reliably.
+- **Choose a reading layout.** Use continuous or paged A4 views with 25%–250% zoom; the zoom level is remembered and reused for every document you open. Outside A4, adjust reading width from 60% to 100% and choose one of four text alignments.
 - **Work with tables and images.** Resize columns, align or merge cells, and split merged cells. Browse image references in document order and jump to their locations.
 - **Export and exchange content.** Export HTML, PDF, or a ZIP containing Markdown and local images. Copy rich text and convert pasted HTML into Markdown.
-- **Convert Word documents.** Import and export `.docx` through a separately installed Pandoc, including common document structures and equations.
-- **Set up your workspace.** Choose light or dark themes, English or Simplified Chinese, view presets, categorized settings, and searchable offline help with chapter navigation.
+- **Convert Word documents.** Import and export `.docx` through a separately installed Pandoc; exported documents follow the Markdown content without extra title text.
+- **Set up your workspace.** Choose light or dark themes, English or Simplified Chinese, view presets, categorized settings, and fonts installed on your system. Changes cross-fade in place over about 0.8 seconds, and searchable offline help stays available with chapter navigation.
 
 The desktop workspace includes files, tabs, and recent items, with autosave, recovery snapshots, external file change detection, and remembered reading positions.
 
@@ -34,7 +34,7 @@ Editing and preview run locally. Editor resources, equation fonts, and help are 
 
 ## Download and installation
 
-Current build: **0.2.6 · updata2**. See the [changelog](CHANGELOG.md) for version notes.
+Current build: **0.2.7**. See the [changelog](CHANGELOG.md) for version notes.
 
 | Edition | Download | Requirements |
 | --- | --- | --- |

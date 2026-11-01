@@ -31,8 +31,9 @@ Based on CommonMark. Escape a numbered sentence as `1\. text`; `1. text` starts 
 | `[text][id]` ↵ ↵ `[id]: https://example.com "hint"` | Reference link with a separate address and optional title. |
 | `![description](assets/image.png)` | Image with alt text and a path or URL. |
 | `![description](assets/image.png "hint")` | Image with a tooltip. |
-| `<https://example.com>`; `<name@example.com>` | Automatic URL and email links. |
-| `[jump](#section-id)` | Link to an internal ID. |
+| `<https://example.com>`; `<name@example.com>` | Automatic URL and email links. Bare URLs are not linked automatically (strict CommonMark compatibility); use an angle-bracket autolink or `[text](url)`. |
+| `[jump](#section-id)`; `[jump](#中文标题)`; `[jump](#sec-中文标题-1)` | Link to an internal target. Use an explicit heading ID, the heading text, or the anchor MDRE generates; case and URL-encoding differences are ignored. |
+| `[other](other.md)`; `[other](../docs/other.md#section)` | Link to a nearby Markdown document. Clicking in editing or reading mode opens the target in a new tab (the extension opens a new VS Code editor); an in-page anchor may follow. Relative `.md` links become placeholders in exported files. |
 | `\*`; `\#`; `\[`; `\\` | Escape punctuation with a backslash. |
 | `&amp;`; `&lt;`; `&gt;`; `&#169;` | HTML entities: ampersand, less-than, greater-than and copyright. |
 | `<br>` | HTML line break, including inside table cells. |
@@ -60,6 +61,10 @@ These forms occur in GFM, Pandoc and other readers; support varies by applicatio
 | `## Heading {#section-id}` | Explicit heading ID, referenced by `[jump](#section-id)`. |
 | `---` ↵ `title: Document title` ↵ `author: Author` ↵ `---` | YAML front matter at the document start. It is omitted from export; `title` may supply the default filename. |
 | `![description](image.png){width="4in"}` | Pandoc image dimensions: positive width/height in px, in, cm, mm or pt. Width determines display size; height remains in source and aspect ratio is preserved. |
+
+### Mermaid diagrams
+
+Common diagram types are supported: flowchart/`graph`, sequence, class, state, Gantt, pie, ER, mindmap, timeline, user journey, quadrant, Git graph, XY chart, requirement, Sankey, C4, block and packet diagrams. Labels may contain Chinese, quotes, parentheses and `<br/>` line breaks; quote labels containing parentheses, `&` or other ambiguous symbols, for example `A["text"]`. Invalid syntax shows a readable hint such as "Syntax error near line N"; only that diagram is affected and it re-renders once the source is fixed. Diagrams render offline as images without loading external scripts.
 
 ## MDRE extensions
 

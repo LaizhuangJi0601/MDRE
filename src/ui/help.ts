@@ -34,8 +34,7 @@ export function setupHelp(options: HelpOptions) {
     <div class="help-search"><label for="help-filter">搜索文档</label><input id="help-filter" type="search" placeholder="搜索当前文档的功能、操作或语法" autocomplete="off"><span id="help-search-status" role="status" aria-live="polite"></span></div>
     <div class="help-layout"><aside class="help-sidebar"><nav class="help-documents" aria-label="帮助文档"></nav><div class="help-toc-label">本页目录</div><nav id="help-toc" aria-label="本页目录"></nav></aside>
     <article id="help-content" aria-label="帮助正文" tabindex="0"></article></div>
-    <div id="help-link-status" role="status" aria-live="polite"></div>
-    <div class="dialog-actions"><span class="help-offline">MDRE · 离线帮助</span></div>`;
+    <div id="help-link-status" role="status" aria-live="polite"></div>`;
   document.body.append(dialog);
   const navigation=dialog.querySelector<HTMLElement>('.help-documents')!,toc=dialog.querySelector<HTMLElement>('#help-toc')!;
   const content=dialog.querySelector<HTMLElement>('#help-content')!,filter=dialog.querySelector<HTMLInputElement>('#help-filter')!;

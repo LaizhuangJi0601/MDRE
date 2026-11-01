@@ -57,6 +57,9 @@ pub struct Settings {
     #[serde(default = "default_split")]
     split: f64,
     paper_enabled: bool,
+    // v0.2.7：A4 缩放是全局显示设置（25%–250%，默认 100%），跨文档与重启保持。
+    #[serde(default = "default_paper_zoom")]
+    paper_zoom: f64,
     paper_layout: String,
     paper_align: String,
     image_layout: String,
@@ -89,6 +92,9 @@ pub struct Settings {
 fn default_sidebar_width() -> f64 { 216.0 }
 fn default_file_list_ratio() -> f64 { 60.0 }
 fn default_split() -> f64 { 50.0 }
+fn default_paper_zoom() -> f64 { 1.0 }
+// v0.2.7：A4 缩放的合法区间与前端 validators.paper_zoom 一致（25%–250%）。
+fn valid_paper_zoom(value: f64) -> bool { (0.25..=2.5).contains(&value) }
 fn default_show_source() -> bool { true }
 fn default_font_size() -> f64 { 15.0 }
 fn default_line_height() -> f64 { 1.85 }
@@ -98,7 +104,7 @@ impl Default for Settings {
         Settings {
             language: "zh-CN".into(), reading_align: "justify".into(), motion: "system".into(), pandoc_path: String::new(), word_reference: String::new(), render_width: 80, reading_positions: std::collections::BTreeMap::new(),
             theme: "system".into(), code_theme: "light".into(), default_mode: "edit".into(), show_source: default_show_source(), split: default_split(),
-            paper_enabled: false, paper_layout: "continuous".into(), paper_align: "justify".into(), image_layout: "fit".into(), sidebar_width: default_sidebar_width(), file_list_ratio: default_file_list_ratio(), outline_collapsed: false,
+            paper_enabled: false, paper_zoom: default_paper_zoom(), paper_layout: "continuous".into(), paper_align: "justify".into(), image_layout: "fit".into(), sidebar_width: default_sidebar_width(), file_list_ratio: default_file_list_ratio(), outline_collapsed: false,
             font_body: String::new(), font_mono: String::new(), font_size: default_font_size(), font_unit: "px".into(), sidebar_visible: true, toolbar_visible: true, last_view: None, line_height: default_line_height(),
             recent: Vec::new(), recent_folders: Vec::new(), last_session: None, backup_count: default_backup_count(), shortcuts: std::collections::BTreeMap::new(),
         }
@@ -535,13 +541,19 @@ pub fn pick_word(window: tauri::WebviewWindow, kind: String) -> Result<Option<St
     Ok(dialog(1, title, None, false, extension, owner))
 }
 // I-4/I-7：配置持久化（主题 + 默认启动模式）。
+// v0.2.7：读配置时修正手改/旧版本留下的非法值，避免一个坏字段阻塞之后所有设置写入。
+fn normalized(mut settings: Settings) -> Settings {
+    settings.recent.truncate(RECENT_LIMIT);
+    if !valid_paper_zoom(settings.paper_zoom) { settings.paper_zoom = default_paper_zoom(); }
+    settings
+}
 #[tauri::command]
 pub fn read_settings(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<Settings, String> {
     let path = settings_root(&app, &window)?.join("settings.json");
     if !path.exists() { crate::i18n::set_language("zh-CN"); return Ok(Settings::default()); }
     let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
     match serde_json::from_slice::<Settings>(&bytes) {
-        Ok(mut settings) => { settings.recent.truncate(RECENT_LIMIT); crate::i18n::set_language(&settings.language); Ok(settings) },
+        Ok(settings) => { let settings = normalized(settings); crate::i18n::set_language(&settings.language); Ok(settings) },
         // 兼容 M1–M5 的纯字符串主题记录。
         Err(_) => serde_json::from_slice::<String>(&bytes).map(|theme| Settings { theme, ..Settings::default() }).map_err(|error| error.to_string()),
     }
@@ -564,6 +576,7 @@ pub fn write_settings(app: tauri::AppHandle, window: tauri::WebviewWindow, state
     if !["light", "dark"].contains(&settings.code_theme.as_str()) { return Err("代码块主题配置无效".into()); }
     if !["edit", "read"].contains(&settings.default_mode.as_str()) { return Err("默认启动模式无效".into()); }
     if !["continuous", "paged"].contains(&settings.paper_layout.as_str()) { return Err("A4 排版方式无效".into()); }
+    if !valid_paper_zoom(settings.paper_zoom) { return Err("A4 缩放比例需在 25%–250% 之间".into()); }
     if !["zh-CN", "en"].contains(&settings.language.as_str()) { return Err("Invalid interface language".into()); }
     if !["left", "center", "right", "justify"].contains(&settings.reading_align.as_str()) { return Err("Invalid reading alignment".into()); }
     if !["left", "center", "right", "justify"].contains(&settings.paper_align.as_str()) { return Err("A4 正文对齐方式无效".into()); }

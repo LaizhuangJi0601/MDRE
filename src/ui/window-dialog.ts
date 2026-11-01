@@ -1,9 +1,52 @@
 import { icon } from './icons';
 import './window-dialog.css';
 
+// v0.2.7 需求 5.2：记住帮助 / 快捷键等窗口式弹窗上次显示的位置与尺寸。
+// 拖动 / 缩放时测量当前外接矩形，关闭后再次打开时恢复并钳制在当前可视区域内。
+const BOUNDS_KEY = 'mdre.window-dialog.bounds';
+type DialogBounds = { left: number; top: number; width: number; height: number };
+const rememberable = (dialog: HTMLDialogElement) => !!dialog.id && !document.body.dataset.auxWindow;
+const storedBounds = (): Record<string, DialogBounds> => {
+  try {
+    const value = JSON.parse(localStorage.getItem(BOUNDS_KEY) || '{}');
+    return value && typeof value === 'object' ? value as Record<string, DialogBounds> : {};
+  } catch { return {}; }
+};
+const validBounds = (bounds: DialogBounds) => [bounds.left, bounds.top, bounds.width, bounds.height].every(Number.isFinite)
+  && bounds.width >= 200 && bounds.height >= 160 && bounds.width <= 8000 && bounds.height <= 8000;
+const measureBounds = (dialog: HTMLDialogElement): DialogBounds | null => {
+  if (!dialog.open || !dialog.getClientRects().length) return null;
+  const rect = dialog.getBoundingClientRect();
+  const bounds = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+  return validBounds(bounds) ? bounds : null;
+};
+const writeBounds = (dialog: HTMLDialogElement, bounds: DialogBounds) => {
+  if (!rememberable(dialog) || dialog.dataset.maximized === 'true') return;
+  const all = storedBounds();
+  all[dialog.id] = bounds;
+  try { localStorage.setItem(BOUNDS_KEY, JSON.stringify(all)); } catch { /* 存储不可用时只保留本次会话内的位置 */ }
+};
+// 关闭后 rect 已不可见，保留最后一次测量结果用于落盘。
+const lastBounds = new WeakMap<HTMLDialogElement, DialogBounds>();
+const applyBounds = (dialog: HTMLDialogElement) => {
+  if (!dialog.open || !rememberable(dialog)) return;
+  const saved = storedBounds()[dialog.id];
+  if (!saved || !validBounds(saved)) return;
+  const width = Math.max(320, Math.min(saved.width, innerWidth - 24));
+  const height = Math.max(240, Math.min(saved.height, innerHeight - 24));
+  dialog.dataset.moved = 'true';
+  dialog.style.maxWidth = 'none';
+  dialog.style.maxHeight = 'none';
+  dialog.style.width = `${width}px`;
+  dialog.style.height = `${height}px`;
+  const rect = dialog.getBoundingClientRect();
+  dialog.style.left = `${Math.max(12, Math.min(saved.left, innerWidth - rect.width - 12))}px`;
+  dialog.style.top = `${Math.max(12, Math.min(saved.top, innerHeight - rect.height - 12))}px`;
+};
+
 // Webview 内窗口采用同一标题栏与八向缩放；独立桌面窗口由系统提供边框和控制按钮。
 export function windowDialog(dialog: HTMLDialogElement) {
-  if(dialog.dataset.windowChrome)return;
+  if(dialog.dataset.windowChrome){applyBounds(dialog);return;}
   dialog.dataset.windowChrome='true';
   const title=dialog.querySelector<HTMLElement>(':scope > h3')!;
   const bar=document.createElement('header');bar.className='dialog-window-bar';
@@ -40,4 +83,20 @@ export function windowDialog(dialog: HTMLDialogElement) {
       handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',finish);handle.addEventListener('lostpointercapture',finish);
     };
   }
+  // 拖动 / 缩放会改写内联样式：每次变化立即测量（此时仍可见），合并为 250ms 一次落盘；
+  // 关闭时用最后一次测量值立即记录，随后打开时恢复。
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  new MutationObserver(() => {
+    const bounds = measureBounds(dialog);
+    if (!bounds) return;
+    lastBounds.set(dialog, bounds);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { saveTimer = undefined; writeBounds(dialog, bounds); }, 250);
+  }).observe(dialog, { attributes: true, attributeFilter: ['style'] });
+  dialog.addEventListener('close', () => {
+    clearTimeout(saveTimer); saveTimer = undefined;
+    const bounds = lastBounds.get(dialog);
+    if (bounds) writeBounds(dialog, bounds);
+  });
+  applyBounds(dialog);
 }

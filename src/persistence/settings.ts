@@ -23,6 +23,7 @@ export type Settings = {
   show_source: boolean;
   split: number;
   paper_enabled: boolean;
+  paper_zoom: number;
   paper_layout: 'continuous' | 'paged';
   paper_align: 'left' | 'center' | 'right' | 'justify';
   image_layout: 'fit' | 'natural';
@@ -43,7 +44,7 @@ export const defaults: Settings = {
   language: 'zh-CN', reading_align: 'justify', motion: 'system', pandoc_path: '', word_reference: '', render_width: 80, reading_positions: {},
   font_unit: 'px', sidebar_visible: true, toolbar_visible: true, last_view: null,
   theme: 'system', code_theme: 'light', default_mode: 'edit', show_source: true, split: 50,
-  paper_enabled: false, paper_layout: 'continuous', paper_align: 'justify', image_layout: 'fit', sidebar_width: 216, file_list_ratio: 60, outline_collapsed: false,
+  paper_enabled: false, paper_zoom: 1, paper_layout: 'continuous', paper_align: 'justify', image_layout: 'fit', sidebar_width: 216, file_list_ratio: 60, outline_collapsed: false,
   font_body: '', font_mono: '', font_size: 15, line_height: 1.85,
   recent: [], recent_folders: [], last_session: null, backup_count: 0, shortcuts: {},
 };
@@ -82,6 +83,7 @@ const validators: Record<keyof Settings, (value: unknown) => boolean> = {
   default_mode: value => ['edit', 'read'].includes(value as string),
   show_source: value => typeof value === 'boolean',
   paper_enabled: value => typeof value === 'boolean',
+  paper_zoom: value => typeof value === 'number' && Number.isFinite(value) && Number(value) >= 0.25 && Number(value) <= 2.5,
   paper_layout: value => ['continuous', 'paged'].includes(value as string),
   paper_align: value => ['left', 'center', 'right', 'justify'].includes(value as string),
   image_layout: value => ['fit', 'natural'].includes(value as string),
