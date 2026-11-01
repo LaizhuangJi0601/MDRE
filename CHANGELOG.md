@@ -2,11 +2,22 @@
 
 ## v0.2.7 — 2026-10-31
 
-Reliable Mermaid rendering, in-place cross-fade transitions, in-editor extension settings, cleaner Word export, remembered A4 zoom and window positions, system fonts, faster large-document editing, and improved links and anchors. See [version notes](docs/releases/0.2.7.md).
+- 修复 Mermaid 图表在标签包含换行或 HTML 标签时无法显示的问题；图表在显示前统一规范化为合法 SVG，覆盖流程图、时序图、类图、状态图、甘特图、饼图、ER 图、思维导图与时间线等常见类型。
+- 视图、标签页、弹窗、菜单、主题与阅读模式切换改为约 0.8 秒的原位交叉淡入淡出，旧内容在原位淡出、新内容在原位淡入；修复部分场景的闪屏，保留组合输入与“减少动态效果”支持。
+- 插件版设置改为编辑器内弹窗，不再是 VS Code 页面；设置、帮助与快捷键窗口重新打开时回到上次位置与大小。
+- 导出的 Word 文档与 Markdown 正文一致，不再附加额外标题。
+- A4 缩放值全局记忆，并在之后打开的文档中沿用；正文字体与等宽字体可选择本机已安装字体。
+- 优化长文档解析与输入响应，降低大文件编辑时的卡顿。
+- 完善基础语法渲染，改进页内链接、标题锚点、相对 Markdown 链接与自动链接。
 
-## v0.2.6 · updata2 — 2026-10-26
+## v0.2.6 — 2026-10-26
 
-English / 简体中文 UI, external Pandoc Word conversion, categorized settings and offline help, adjustable reading layout, and refined window interactions. See [version notes](docs/releases/0.2.6.md).
+- 新增 Word 导入导出（调用另行安装的 Pandoc），支持常见结构与公式。
+- 新增简体中文／English 界面、分类设置与搜索，以及三篇可搜索的离线帮助。
+- 非 A4 页宽 60%–100%，正文支持四种对齐方式；图片默认显示方式同时适用于 A4 与非 A4 视图。
+- 优化设置草稿恢复、窗口控件与可配置的界面过渡；未打开文档时禁用相关导出入口。
+- 桌面端支持外部保存检测、冲突内容保留与阅读位置恢复；重复打开同一路径时激活已有标签。
+- 表格菜单按操作分组，跨段落格式可批量应用并一次撤销。
 
 ## v0.2.5 — 2026-10-17
 

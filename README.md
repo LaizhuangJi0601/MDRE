@@ -20,13 +20,13 @@
 
 ## Features
 
-- **Edit source and rich text together.** Keep both panes synchronized, or work in rich text alone. Format headings, lists, links, and text through the toolbar and context menus; in-document links and heading anchors jump to the right place.
-- **Write equations, diagrams, and code.** Render math with KaTeX, edit equations visually with MathLive, and use Mermaid diagrams (flowchart, sequence, class, state, gantt, pie, ER, mindmap, timeline and more), syntax highlighting, and code block themes. Diagram source is normalized before display, so labels with line breaks, Chinese text, or punctuation render reliably.
-- **Choose a reading layout.** Use continuous or paged A4 views with 25%–250% zoom; the zoom level is remembered and reused for every document you open. Outside A4, adjust reading width from 60% to 100% and choose one of four text alignments.
-- **Work with tables and images.** Resize columns, align or merge cells, and split merged cells. Browse image references in document order and jump to their locations.
-- **Export and exchange content.** Export HTML, PDF, or a ZIP containing Markdown and local images. Copy rich text and convert pasted HTML into Markdown.
-- **Convert Word documents.** Import and export `.docx` through a separately installed Pandoc; exported documents follow the Markdown content without extra title text.
-- **Set up your workspace.** Choose light or dark themes, English or Simplified Chinese, view presets, categorized settings, and fonts installed on your system. Changes cross-fade in place over about 0.8 seconds, and searchable offline help stays available with chapter navigation.
+- **Edit source and rich text together.** Keep both panes synchronized, or work in rich text alone, with formatting for headings, lists, links, and text from the toolbar and context menus.
+- **Write equations, diagrams, and code.** Render math with KaTeX, edit equations visually with MathLive, use Mermaid diagrams across common diagram types, and highlight code with selectable themes.
+- **Choose a reading layout.** Read or edit in continuous or paged A4 layouts with adjustable zoom, or adjust the reading width and choose among four text alignments outside A4.
+- **Work with tables and images.** Resize columns, align or merge cells, split merged cells, and browse image references in document order.
+- **Export and exchange content.** Export HTML, PDF, or a shareable ZIP, copy rich text, and paste HTML as Markdown.
+- **Convert Word documents.** Import and export `.docx` files through a separately installed Pandoc.
+- **Set up your workspace.** Choose light or dark themes, English or Simplified Chinese, view presets, categorized settings, system fonts, and searchable offline help with chapter navigation.
 
 The desktop workspace includes files, tabs, and recent items, with autosave, recovery snapshots, external file change detection, and remembered reading positions.
 
