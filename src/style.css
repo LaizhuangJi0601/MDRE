@@ -491,7 +491,7 @@ body[data-settings-window] #settings-dialog > .settings-search,body[data-setting
 #external-compare .external-columns label { display:flex; flex:1; min-width:0; flex-direction:column; gap:8px; }
 #external-compare textarea { width:100%; flex:1; resize:none; background:var(--surface); color:var(--text); }
 
-/* 0.2.6-updata1：单一内容滚动区，预览随外观分类显示。 */
+/* 0.2.6：单一内容滚动区，预览随外观分类显示。 */
 #settings-dialog .dialog-content { gap:14px; padding-top:10px; }
 #settings-dialog legend { display:none; }
 #settings-dialog fieldset { margin:0; padding:2px 2px 14px; min-width:0; }
