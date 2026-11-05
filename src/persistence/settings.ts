@@ -34,6 +34,9 @@ export type Settings = {
   font_mono: string;
   font_size: number;
   line_height: number;
+  // v0.3.0：界面（除正文外）缩放 80–200，步进 10；检查更新的时间戳（毫秒）。
+  ui_scale: number;
+  last_update_check: number;
   recent: string[];
   recent_folders: string[];
   last_session: LastSession | null;
@@ -46,6 +49,7 @@ export const defaults: Settings = {
   theme: 'system', code_theme: 'light', default_mode: 'edit', show_source: true, split: 50,
   paper_enabled: false, paper_zoom: 1, paper_layout: 'continuous', paper_align: 'justify', image_layout: 'fit', sidebar_width: 216, file_list_ratio: 60, outline_collapsed: false,
   font_body: '', font_mono: '', font_size: 15, line_height: 1.85,
+  ui_scale: 100, last_update_check: 0,
   recent: [], recent_folders: [], last_session: null, backup_count: 0, shortcuts: {},
 };
 // S-47：可自定义的命令与默认组合键；配置文件里只覆盖需要改的项。
@@ -95,6 +99,8 @@ const validators: Record<keyof Settings, (value: unknown) => boolean> = {
   font_mono: value => typeof value === 'string' && value.length <= 200,
   font_size: value => typeof value === 'number' && Number.isFinite(value) && value >= 0.5 && value <= 32,
   line_height: value => typeof value === 'number' && value >= 1 && value <= 3,
+  ui_scale: value => Number.isInteger(value) && Number(value) >= 80 && Number(value) <= 200 && Number(value) % 10 === 0,
+  last_update_check: value => typeof value === 'number' && Number.isFinite(value) && Number(value) >= 0,
   recent: value => Array.isArray(value) && value.every(item => typeof item === 'string'),
   recent_folders: value => Array.isArray(value) && value.every(item => typeof item === 'string'),
   last_session: value => {

@@ -175,3 +175,4 @@ function assertMergeRectangle(model: Model, tableId: string, ids: string[]): voi
     throw new Error('只能合并矩形区域：请选择连续的行列范围后再合并。');
   }
 }
+

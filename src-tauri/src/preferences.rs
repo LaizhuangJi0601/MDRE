@@ -149,28 +149,63 @@ pub async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("主窗口不存在")?;
     let root = crate::persistence::app_root(&app, &main)?;
     let window = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
-        .title(crate::i18n::text("MDRE 设置")).inner_size(960.0, 720.0).min_inner_size(SETTINGS_MIN_SIZE.0 as f64, SETTINGS_MIN_SIZE.1 as f64).build().map_err(|e| e.to_string())?;
+        .title(crate::i18n::text("MDRE 设置")).inner_size(960.0, 720.0).min_inner_size(SETTINGS_MIN_SIZE.0 as f64, SETTINGS_MIN_SIZE.1 as f64)
+        // 先隐藏，恢复记忆位置后再显示，避免窗口先在默认位置闪一下。
+        .visible(false).build().map_err(|e| e.to_string())?;
     restore_bounds(&window, &root, "settings", SETTINGS_MIN_SIZE);
     remember_bounds(&window, root, "settings");
+    window.show().map_err(|e| e.to_string())?;
+    let _ = window.set_focus();
     Ok(())
 }
 
-// 帮助和快捷键沿用设置的轻量入口，系统提供标题栏、最小化、最大化与四边缩放。
+// 帮助、快捷键与检查更新沿用设置的轻量入口，系统提供标题栏、最小化、最大化与四边缩放。
 #[tauri::command]
 pub async fn open_aux_window(app: tauri::AppHandle, kind: String) -> Result<(), String> {
-    if !["help", "shortcuts"].contains(&kind.as_str()) { return Err("Unknown window".into()); }
-    let label: &'static str = if kind == "help" { "help" } else { "shortcuts" };
+    if !["help", "shortcuts", "update"].contains(&kind.as_str()) { return Err("Unknown window".into()); }
+    let label: &'static str = match kind.as_str() { "help" => "help", "update" => "update", _ => "shortcuts" };
     wait_before_open(label).await?;
     if focus_existing(&app, label).await? { return Ok(()); }
     let main=app.get_webview_window("main").ok_or("Main window unavailable")?;
     let language=crate::files::read_settings(app.clone(),main.clone()).map(|s|s.language).unwrap_or_default();
-    let title=match (kind.as_str(),language.as_str()){("help","en")=>"MDRE Help",("shortcuts","en")=>"MDRE Keyboard Shortcuts",("help",_)=>"MDRE 帮助",_=>"MDRE 快捷键设置"};
+    let title=match (kind.as_str(),language.as_str()){
+        ("help","en")=>"MDRE Help",("shortcuts","en")=>"MDRE Keyboard Shortcuts",("update","en")=>"MDRE Check for Updates",
+        ("help",_)=>"MDRE 帮助",("shortcuts",_)=>"MDRE 快捷键设置",_=>"MDRE 检查更新"};
     let root=crate::persistence::app_root(&app,&main)?;
+    let (width, height) = if kind == "update" { (980.0, 760.0) } else { (1040.0, 760.0) };
     let window=WebviewWindowBuilder::new(&app,&kind,WebviewUrl::App(format!("settings.html?view={kind}").into()))
-      .title(title).inner_size(1040.0,760.0).min_inner_size(AUX_MIN_SIZE.0 as f64, AUX_MIN_SIZE.1 as f64).build().map_err(|e|e.to_string())?;
+      .title(title).inner_size(width,height).min_inner_size(AUX_MIN_SIZE.0 as f64, AUX_MIN_SIZE.1 as f64)
+      .visible(false).build().map_err(|e|e.to_string())?;
     restore_bounds(&window, &root, label, AUX_MIN_SIZE);
     remember_bounds(&window, root, label);
+    window.show().map_err(|e|e.to_string())?;
+    let _ = window.set_focus();
     Ok(())
 }
 
 fn close_auxiliary(app:&tauri::AppHandle){for label in ["help","shortcuts"]{if let Some(window)=app.get_webview_window(label){let _=window.close();}}}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 无法在单测环境构造真实窗口，只验证“正在关闭”标记集合的 insert / clear 语义。
+    #[test]
+    fn closing_flags_track_labels() {
+        clear_closing("settings");
+        assert!(!is_closing("settings"));
+        mark_closing("settings");
+        assert!(is_closing("settings"));
+        assert!(!is_closing("help"));
+        mark_closing("settings"); // 重复标记保持幂等
+        assert!(is_closing("settings"));
+        clear_closing("settings");
+        assert!(!is_closing("settings"));
+        clear_closing("settings"); // 清理未标记的 label 安全
+        assert!(!is_closing("settings"));
+        mark_closing("help");
+        assert!(is_closing("help"));
+        clear_closing("help");
+        assert!(!is_closing("help"));
+    }
+}

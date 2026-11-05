@@ -1,6 +1,6 @@
 {
   "name": "mdre",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -31,7 +31,10 @@
     "prosemirror-schema-list": "^1.5.1",
     "prosemirror-state": "^1.4.3",
     "prosemirror-transform": "^1.10.5",
-    "prosemirror-view": "^1.41.3"
+    "prosemirror-view": "^1.41.3",
+    "@codemirror/legacy-modes": "6.5.5",
+    "mammoth": "1.13.0",
+    "pdfjs-dist": "4.10.38"
   },
   "devDependencies": {
     "@playwright/cli": "^0.1.0",

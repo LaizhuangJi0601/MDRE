@@ -8,7 +8,9 @@ export type SaveState = 'saved' | 'pending' | 'unbound' | 'conflict' | 'failed';
 type History = { forward: Patch; inverse: Patch; before: Selection; after: Selection };
 export type Draft = Ticket & { range: Range; text: string };
 export type ReadingAnchor = { block: string; source: number; offset: number };
-export type SessionOptions = { title?: string; path?: string | null; encoding?: string; bom?: boolean; diskFingerprint?: string | null; savedText?: string };
+// v0.3.0：文档类型。markdown 走原有模型/渲染；code/text 为纯文本编辑；docx/pdf 只读查看。
+export type DocumentKind = 'markdown' | 'code' | 'text' | 'docx' | 'pdf';
+export type SessionOptions = { title?: string; path?: string | null; encoding?: string; bom?: boolean; diskFingerprint?: string | null; savedText?: string; kind?: DocumentKind };
 export function fingerprint(text: string): string {
   let value = 0xcbf29ce484222325n;
   for (const byte of new TextEncoder().encode(text)) value = BigInt.asUintN(64, (value ^ BigInt(byte)) * 0x100000001b3n);
@@ -22,6 +24,7 @@ export class DocumentSession {
   readonly originalText: string;
   source: string;
   model: Model;
+  kind: DocumentKind = 'markdown';
   selection = initialSelection();
   readOnly = false;
   welcome = false;
@@ -56,7 +59,8 @@ export class DocumentSession {
     this.originalBytes = typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes.slice();
     this.originalText = typeof bytes === 'string' ? bytes : new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
     this.source = this.originalText;
-    this.model = this.parseModel(this.source);
+    this.kind = options.kind ?? 'markdown';
+    this.model = this.parseModel(this.kind === 'markdown' ? this.source : '');
     this.title = options.title ?? id;
     this.path = options.path ?? null;
     this.encoding = options.encoding ?? 'utf-8';
@@ -89,7 +93,7 @@ export class DocumentSession {
   // 冲突后按磁盘内容重新载入：丢弃本地未保存修改与历史，保留标签身份。
   reloadFrom(text: string, fingerprintValue: string, encoding: string) {
     this.recovered = false;
-    this.source = text; this.model = this.parseModel(text); this.modelStale = false; this.savedText = text; this.savedFingerprint = fingerprint(text);
+    this.source = text; this.model = this.parseModel(this.kind === 'markdown' ? text : ''); this.modelStale = false; this.savedText = text; this.savedFingerprint = fingerprint(text);
     this.diskFingerprint = fingerprintValue; this.encoding = encoding; this.bom = text.startsWith('\uFEFF');
     this.undoEntries = []; this.redoEntries = []; this.revision++; this.transactionId++;
     this.saveStatus = 'idle'; this.saveError = '';
@@ -115,6 +119,11 @@ export class DocumentSession {
     if (this.readingAnchor) this.readingAnchor.source = next.blocks.find(b => b.id === this.readingAnchor!.block)?.from ?? mapOffset(this.readingAnchor.source, edit);
   }
   changeSource(text: string, after: Selection = this.selection): void { this.commit(this.ticket('source'), difference(this.source, text), after); }
+  // 纯文本/代码文档由 CodeMirror 维护撤销历史；这里只同步源码、脏标记与版本号，不重建 Markdown 模型。
+  setPlainSource(text: string): void {
+    if (text === this.source) return;
+    this.source = text; this.revision++; this.transactionId++; this.modelStale = false;
+  }
   // 5.1.5 大文档降级：只提交源码与历史，模型留到手动刷新时重建（模型过期期间结构命令拒绝执行）。
   liteCommit(ticket: Ticket, edit: Patch, after: Selection = this.selection): void {
     if (this.readOnly) throw new Error('当前为只读模式，修改未提交。');
@@ -129,6 +138,7 @@ export class DocumentSession {
     this.modelStale = true;
   }
   refreshModel(): void {
+    if (this.kind !== 'markdown') { this.modelStale = false; return; }
     if (!this.modelStale) return;
     this.model = this.parseModel(this.source);
     this.modelStale = false;
@@ -185,3 +195,4 @@ export class Workspace {
     if (this.activeId === id || !this.documents.has(this.activeId)) this.activeId = nextId && this.documents.has(nextId) ? nextId : this.documents.keys().next().value ?? '';
   }
 }
+

@@ -9,14 +9,14 @@ import { settings } from '../persistence/settings';
 //
 // 1. 切换前把旧界面克隆成 position:fixed 的覆盖层（ghost），按原位置、原滚动位置盖住旧像素；
 // 2. 同步应用新界面（新内容立即出现在最终位置，不参与任何布局动画）；
-// 3. ghost 在 800ms 内 opacity 1 → 0：旧内容在原位置由深变浅消失，新内容在应显示位置由浅变深显现。
+// 3. ghost 在 400ms 内 opacity 1 → 0：旧内容在原位置由深变浅消失，新内容在应显示位置由浅变深显现。
 //
 // 全程同步执行、不改动新界面的布局，因此不会出现位移动画、不会白屏闪烁；ghost 用 pointer-events:none，
 // 新界面在过渡期间即可点击/输入。任何时候用户开始交互（点击、滚轮、按键）或进入输入法组合输入，
 // 立即结束过渡，保证输入响应。正文输入面只允许透明度动画，不叠加 transform/zoom。
 // 系统“减少动态效果”或设置里关闭动画时直接切换，不做任何过渡。
 
-export const MOTION_SWAP = 800;
+export const MOTION_SWAP = 400;
 const EASE = 'cubic-bezier(.33,0,.25,1)';
 // ghost 层级：盖住正文/侧栏，但低于弹窗（100）、菜单（100）与提示（200）。
 const GHOST_Z = 60;
@@ -188,7 +188,7 @@ export function crossfade(regions: Array<Element | null | undefined>, mutate: ()
   for (const region of regions) if (region && !targets.includes(region)) targets.push(region);
   const created: Array<[Element, HTMLElement]> = [];
   for (const target of targets) {
-    // 同一区域已有快照在淡出：继续用它，避免 800ms 内连续切换时重复克隆。
+    // 同一区域已有快照在淡出：继续用它，避免 400ms 内连续切换时重复克隆。
     if (ghosts.has(target)) continue;
     const wrapper = createGhost(target);
     if (wrapper) created.push([target, wrapper]);

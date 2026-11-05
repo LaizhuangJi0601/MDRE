@@ -1,0 +1,151 @@
+/* MDRE 0.3.0 文件格式模块样式。
+   由接线方在入口（桌面 src/main.ts 或插件 src/main.ts）引入；模块本身不 import CSS。
+   配色优先使用宿主 CSS 变量（src/style.css 中的 --text/--surface/--border 等），未定义时回退浅色默认值。 */
+
+/* ── 代码编辑区 ────────────────────────────────────────────────────────── */
+/* 容器铺满父级；主题、字体、字号、行距由 CodeEditor 根据 appearance() 注入到 CodeMirror。 */
+.formats-code {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface, #fff);
+}
+
+.formats-code .cm-editor {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.formats-code .cm-scroller {
+  overflow: auto;
+}
+
+.formats-code .cm-gutters {
+  user-select: none;
+}
+
+/* ── DOCX 只读连续阅读区 ───────────────────────────────────────────────── */
+/* 宿主给渲染容器加 .formats-docx 即可获得与正文一致的排版。 */
+.formats-docx {
+  height: 100%;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 28px clamp(24px, 7%, 96px) 72px;
+  color: var(--text, #424242);
+  background: var(--surface, transparent);
+  font-family: var(--font-body, "Microsoft YaHei", "Segoe UI", sans-serif);
+  font-size: var(--font-size, 15px);
+  line-height: var(--line-height, 1.85);
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.formats-docx > :first-child {
+  margin-top: 0;
+}
+
+.formats-docx h1,
+.formats-docx h2,
+.formats-docx h3,
+.formats-docx h4,
+.formats-docx h5,
+.formats-docx h6 {
+  margin: 1.4em 0 0.55em;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--text, #424242);
+}
+
+.formats-docx h1 { font-size: 1.9em; }
+.formats-docx h2 { font-size: 1.55em; }
+.formats-docx h3 { font-size: 1.3em; }
+.formats-docx h4 { font-size: 1.15em; }
+.formats-docx h5 { font-size: 1.05em; }
+.formats-docx h6 { font-size: 1em; color: var(--muted, #858585); }
+
+.formats-docx p {
+  margin: 0.65em 0;
+}
+
+.formats-docx a {
+  color: var(--accent, #0078d4);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.formats-docx img {
+  max-width: 100%;
+  height: auto;
+}
+
+.formats-docx ul,
+.formats-docx ol {
+  padding-left: 1.6em;
+  margin: 0.65em 0;
+}
+
+.formats-docx li {
+  margin: 0.25em 0;
+}
+
+.formats-docx blockquote {
+  margin: 1em 0;
+  padding-left: 16px;
+  border-left: 3px solid var(--border, #e3e3e3);
+  color: var(--muted, #858585);
+}
+
+.formats-docx table {
+  width: 100%;
+  margin: 1em 0;
+  border-collapse: collapse;
+}
+
+.formats-docx th,
+.formats-docx td {
+  border: 1px solid var(--border, #e3e3e3);
+  padding: 6px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.formats-docx th {
+  background: var(--soft, #fafafa);
+  font-weight: 600;
+}
+
+.formats-docx pre,
+.formats-docx code,
+.formats-docx kbd,
+.formats-docx samp {
+  font-family: var(--font-mono, Consolas, "Microsoft YaHei", monospace);
+}
+
+.formats-docx pre {
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e3e3e3);
+  border-radius: 4px;
+  background: var(--soft, #fafafa);
+  white-space: pre-wrap;
+}
+
+.formats-docx hr {
+  margin: 1.8em 0;
+  border: 0;
+  border-top: 1px solid var(--border, #e3e3e3);
+}
+
+.formats-docx math {
+  font-size: 1.05em;
+}
+
+/* 稳定标题锚点滚动时留出顶部间距（与 .formats-docx 容器内的滚动联动）。 */
+.formats-docx [id^="docx-"] {
+  scroll-margin-top: 12px;
+}

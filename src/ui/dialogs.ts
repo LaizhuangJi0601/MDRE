@@ -1,4 +1,7 @@
 // 弹窗统一居中，标题可拖动，右下角可缩放；内容滚动而操作按钮常驻。
+// v0.3.0：界面缩放使用 CSS zoom，弹窗的视觉尺寸 = 内联样式 × --ui-scale，
+// 因此定位/拖动/缩放都按视觉像素计算，再用 toStylePixels 换算回内联样式单位。
+import { toStylePixels } from './ui-scale';
 const configured = new WeakSet<HTMLDialogElement>();
 export function positionDialog(dialog: HTMLDialogElement) {
   if (!configured.has(dialog)) {
@@ -15,19 +18,25 @@ export function positionDialog(dialog: HTMLDialogElement) {
       if (!dialog.open) return;
       const rect = dialog.getBoundingClientRect();
       const centered = dialog.dataset.moved !== 'true';
-      dialog.style.left = `${Math.max(12, Math.min(centered ? (innerWidth - rect.width) / 2 : rect.left, innerWidth - rect.width - 12))}px`;
-      dialog.style.top = `${Math.max(12, Math.min(centered ? (innerHeight - rect.height) / 2 : rect.top, innerHeight - rect.height - 12))}px`;
+      const left = Math.max(12, Math.min(centered ? (innerWidth - rect.width) / 2 : rect.left, innerWidth - rect.width - 12));
+      const top = Math.max(12, Math.min(centered ? (innerHeight - rect.height) / 2 : rect.top, innerHeight - rect.height - 12));
+      dialog.style.left = `${toStylePixels(left)}px`;
+      dialog.style.top = `${toStylePixels(top)}px`;
     };
     const observer = new ResizeObserver(fit); observer.observe(dialog);
     window.addEventListener('resize', fit);
     const adjust = (dx: number, dy: number, sizing: boolean, rect: DOMRect) => {
       dialog.dataset.moved = 'true';
       if (sizing) {
-        dialog.style.width = `${Math.max(Math.min(320, innerWidth - 24), Math.min(rect.width + dx, innerWidth - rect.left - 12))}px`;
-        dialog.style.height = `${Math.max(Math.min(180, innerHeight - 24), Math.min(rect.height + dy, innerHeight - rect.top - 12))}px`;
+        const width = Math.max(Math.min(320, innerWidth - 24), Math.min(rect.width + dx, innerWidth - rect.left - 12));
+        const height = Math.max(Math.min(180, innerHeight - 24), Math.min(rect.height + dy, innerHeight - rect.top - 12));
+        dialog.style.width = `${toStylePixels(width)}px`;
+        dialog.style.height = `${toStylePixels(height)}px`;
       } else {
-        dialog.style.left = `${Math.max(12, Math.min(rect.left + dx, innerWidth - rect.width - 12))}px`;
-        dialog.style.top = `${Math.max(12, Math.min(rect.top + dy, innerHeight - rect.height - 12))}px`;
+        const left = Math.max(12, Math.min(rect.left + dx, innerWidth - rect.width - 12));
+        const top = Math.max(12, Math.min(rect.top + dy, innerHeight - rect.height - 12));
+        dialog.style.left = `${toStylePixels(left)}px`;
+        dialog.style.top = `${toStylePixels(top)}px`;
       }
     };
     for (const [control, sizing] of [[title, false], [resize, true]] as const) {
@@ -52,6 +61,6 @@ export function positionDialog(dialog: HTMLDialogElement) {
   for (const property of ['width', 'height', 'left', 'top']) dialog.style.removeProperty(property);
   if (!dialog.open) dialog.show();
   const rect = dialog.getBoundingClientRect();
-  dialog.style.left = `${Math.max(12, (innerWidth - rect.width) / 2)}px`;
-  dialog.style.top = `${Math.max(12, (innerHeight - rect.height) / 2)}px`;
+  dialog.style.left = `${toStylePixels(Math.max(12, (innerWidth - rect.width) / 2))}px`;
+  dialog.style.top = `${toStylePixels(Math.max(12, (innerHeight - rect.height) / 2))}px`;
 }

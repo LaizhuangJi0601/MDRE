@@ -60,6 +60,7 @@ const paths = {
   code: '<path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18"/>',
   refresh: '<path d="M20 11a8 8 0 0 0-14-5L3 9m0-6v6h6m-5 4a8 8 0 0 0 14 5l3-3m0 6v-6h-6"/>',
   arrowDown: '<path d="M12 4v16m-6-6 6 6 6-6"/>',
+  arrowUp: '<path d="M12 20V4m-6 6 6-6 6 6"/>',
   replace: '<path d="M4 7h14m-4-4 4 4-4 4M20 17H6m4-4-4 4 4 4"/>',
   replaceAll: '<path d="M4 7h14m-4-4 4 4-4 4M20 17H6m4-4-4 4 4 4"/><path d="M3 3v18" stroke-dasharray="2 2"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
@@ -78,3 +79,4 @@ export const icon = (name: Icon) => `<svg viewBox="0 0 24 24" fill="none" stroke
 export function iconButton(id: string, name: Icon, label: string, shortcut = '') {
   return `<button id="${id}" class="icon-button" aria-label="${label}" data-tooltip="${label}${shortcut ? ` (${shortcut})` : ''}">${icon(name)}</button>`;
 }
+

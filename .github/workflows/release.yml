@@ -21,7 +21,7 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           version="${tag#v}"
           notes="docs/releases/${version}.md"
-          title="MDRE for Windows ${tag}"
+          title="MDRE ${tag}"
           if [ -f "$notes" ]; then
             gh release create "$tag" mdre.exe SHA256SUMS.txt --title "$title" --notes-file "$notes"
           else

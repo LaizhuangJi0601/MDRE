@@ -157,3 +157,55 @@ fn overlap_area(bounds: Bounds, screen: Screen) -> u64 {
         ((right - left) * (bottom - top)) as u64
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn primary() -> Screen {
+        Screen { x: 0, y: 0, width: 1920, height: 1080 }
+    }
+
+    #[test]
+    fn keeps_window_inside_primary_screen() {
+        let bounds = Bounds::new(300, 200, 960, 720);
+        assert_eq!(clamp(bounds, &[primary()], 700, 500), bounds);
+    }
+
+    #[test]
+    fn pulls_offscreen_window_back_into_view() {
+        let bounds = Bounds::new(-4000, -3000, 960, 720);
+        let clamped = clamp(bounds, &[primary()], 700, 500);
+        assert_eq!(clamped, Bounds::new(0, 0, 960, 720));
+        let far = clamp(Bounds::new(5000, 4000, 960, 720), &[primary()], 700, 500);
+        assert_eq!(far, Bounds::new(960, 360, 960, 720));
+    }
+
+    #[test]
+    fn keeps_window_on_secondary_monitor() {
+        let screens = [primary(), Screen { x: 1920, y: 0, width: 1280, height: 1024 }];
+        // 副屏内但右侧超出的窗口会被拉回副屏可见范围。
+        let clamped = clamp(Bounds::new(3000, 300, 900, 640), &screens, 560, 420);
+        assert_eq!(clamped, Bounds::new(2300, 300, 900, 640));
+        let inside = Bounds::new(2000, 200, 900, 640);
+        assert_eq!(clamp(inside, &screens, 560, 420), inside);
+    }
+
+    #[test]
+    fn shrinks_size_larger_than_screen() {
+        let clamped = clamp(Bounds::new(0, 0, 9000, 7000), &[primary()], 700, 500);
+        assert_eq!(clamped, Bounds::new(0, 0, 1920, 1080));
+    }
+
+    #[test]
+    fn minimal_size_applies_when_saved_too_small() {
+        let clamped = clamp(Bounds::new(100, 100, 100, 100), &[primary()], 700, 500);
+        assert_eq!(clamped, Bounds::new(100, 100, 700, 500));
+    }
+
+    #[test]
+    fn empty_screen_list_still_returns_sane_size() {
+        let clamped = clamp(Bounds::new(10, 10, 100, 100), &[], 700, 500);
+        assert_eq!(clamped, Bounds::new(10, 10, 700, 500));
+    }
+}

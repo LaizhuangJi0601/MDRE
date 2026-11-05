@@ -1,8 +1,8 @@
-/* v0.2.7 动画：内容切换统一为原位交叉淡入淡出（800ms）。
+/* v0.3.0 动画：内容切换统一为原位交叉淡入淡出（400ms，不超过 0.5 秒）。
    正文/侧栏/主视图/标签页/主题/工具栏等“参与布局”的切换由 motion.ts 的快照覆盖层完成，
    本文件只保留不参与布局的浮层（菜单、右键菜单、下拉、提示）与悬停反馈；
    不写 transform/scale/translate 位移动画，不给输入面叠加位移或缩放。 */
-:root { --motion-swap:800ms; --motion-fast:140ms; --motion-popup:800ms; --motion-panel:800ms; --motion-ease:cubic-bezier(.33,0,.25,1); }
+:root { --motion-swap:400ms; --motion-fast:140ms; --motion-popup:400ms; --motion-panel:400ms; --motion-ease:cubic-bezier(.33,0,.25,1); }
 
 /* 悬停/选中反馈保持快速，避免按钮颜色变化拖慢操作感。 */
 :root[data-motion="on"] :is(button,select,input,textarea,.menu-trigger,.file-row,.outline-row,.image-row,.tab-close) {

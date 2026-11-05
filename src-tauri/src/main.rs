@@ -8,6 +8,8 @@ mod watch;
 mod window_state;
 mod preferences;
 mod i18n;
+mod updater;
+mod pdf_file;
 
 use std::{path::PathBuf, sync::{Arc, Mutex}, time::{Duration, SystemTime, UNIX_EPOCH}};
 use serde::Serialize;
@@ -131,6 +133,23 @@ fn take_launch_path(state: tauri::State<PendingOpen>) -> Option<String> {
     Some(queue.remove(0))
 }
 
+// v0.3.0：顶部版本信息与设置页“检查版本更新”共用；设置窗口通过该命令请求主窗口检查。
+#[tauri::command]
+fn app_version(app: tauri::AppHandle) -> String { app.package_info().version.to_string() }
+
+#[tauri::command]
+fn request_update_check(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Emitter;
+    app.emit_to("main", "update-check-request", ()).map_err(|reason| reason.to_string())
+}
+
+// v0.3.0：独立检查更新窗口完成检查后通知主窗口刷新版本按钮蓝点。
+#[tauri::command]
+fn update_status_to_main(app: tauri::AppHandle, available: bool, _latest: String) -> Result<(), String> {
+    use tauri::Emitter;
+    app.emit_to("main", "update-status", serde_json::json!({ "available": available })).map_err(|reason| reason.to_string())
+}
+
 fn push_open(state: &PendingOpen, path: String) {
     if let Ok(mut queue) = state.0.lock() {
         if !queue.iter().any(|item| item == &path) { queue.push(path); }
@@ -158,14 +177,16 @@ fn main() {
         .manage(watch::Watches::default())
         .manage(preferences::SettingsExit::default())
         .invoke_handler(tauri::generate_handler![
-            take_launch_path, preferences::open_settings_window, preferences::open_aux_window, preferences::prepare_settings_shutdown, preferences::settings_shutdown_result, fonts::list_system_fonts, word::detect_pandoc, word::word_convert, watch::watch_files, files::pick_word,
+            take_launch_path, app_version, request_update_check, update_status_to_main, preferences::open_settings_window, preferences::open_aux_window, preferences::prepare_settings_shutdown, preferences::settings_shutdown_result, fonts::list_system_fonts, word::detect_pandoc, word::word_convert, watch::watch_files, files::pick_word,
             files::pick_images, files::clipboard_image_paths,
             explorer::pick_folder, explorer::list_directory, explorer::create_document,
             export_pdf,
             persistence::write_recovery, persistence::read_recovery, persistence::discard_recovery, persistence::discard_recovery_dir, persistence::save_image, persistence::read_image,
             files::read_text_file, files::write_text_file, files::rotate_backup, files::copy_resource, files::read_document_image, files::pick_file, files::pick_export, files::write_export, files::write_export_binary, files::read_binary,
             files::read_settings, files::write_settings, files::open_external, files::rename_document, files::reveal_document,
-            files::register_file_association, files::file_association_status, files::settings_directory, files::open_settings_directory
+            files::register_file_association, files::file_association_status, files::settings_directory, files::open_settings_directory,
+            updater::check_latest_release, updater::download_update, updater::restart_after_update, updater::cleanup_stale_update,
+            pdf_file::pdf_file_length, pdf_file::read_file_range
         ])
         .run(tauri::generate_context!()).expect("MDRE 桌面应用启动失败");
 }

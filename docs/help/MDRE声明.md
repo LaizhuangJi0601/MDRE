@@ -12,6 +12,8 @@ MDRE 采用 MIT 许可证。第三方组件的版权与使用条件以各自原�
 | markdown-it／entities | Markdown 与 HTML 实体处理 | [markdown-it](https://github.com/markdown-it/markdown-it) · [entities](https://github.com/fb55/entities) |
 | KaTeX／MathLive | 公式排版、字体与可视化编辑 | [KaTeX](https://github.com/KaTeX/KaTeX) · [MathLive](https://github.com/arnog/mathlive) |
 | Mermaid／highlight.js | 图表与代码高亮 | [Mermaid](https://github.com/mermaid-js/mermaid) · [highlight.js](https://github.com/highlightjs/highlight.js) |
+| pdf.js | PDF 页面渲染、缩放与缩略图 | [pdf.js](https://mozilla.github.io/pdf.js/) |
+| Mammoth | Word 文档转换为 HTML 供阅读 | [Mammoth](https://github.com/mwilliamson/mammoth.js) |
 | Serde／serde_json／Tokio | 数据序列化与异步运行 | [Serde](https://github.com/serde-rs/serde) · [serde_json](https://github.com/serde-rs/json) · [Tokio](https://github.com/tokio-rs/tokio) |
 | windows-rs／webview2-com | Windows 与 WebView2 接口 | [windows-rs](https://github.com/microsoft/windows-rs) · [webview2-com](https://github.com/wravery/webview2-rs) |
 

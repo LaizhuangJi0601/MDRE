@@ -78,6 +78,8 @@ export class SaveQueue {
   }
   // D.1：首次保存/另存为先把被引用图片复制到目标 assets/，缺失的列出来交给调用方决定。
   private async copyResources(doc: DocumentSession, target: string, snapshot: string): Promise<string[]> {
+    // v0.3.0：纯文本/代码文档没有图片资源，不需要解析 Markdown 模型。
+    if (doc.kind !== 'markdown') return [];
     const model = doc.model.source === snapshot ? doc.model : parse(snapshot);
     const references = new Set(model.atoms.filter(atom => atom.kind === 'image').map(atom => String(model.doc.nodeAt(atom.pos)!.attrs.src)).filter(src => !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(src)));
     if (!references.size) return [];
@@ -95,7 +97,7 @@ export class SaveQueue {
   async flush(): Promise<void> { await Promise.all([...this.chains.values()]); }
 }
 export async function readTextFile(path: string): Promise<ReadTextFile> { return invoke<ReadTextFile>('read_text_file', { path }); }
-export async function pickFile(save: boolean, suggested?: string): Promise<string | null> { return invoke<string | null>('pick_file', { save, suggested: suggested ?? null }); }
+export async function pickFile(save: boolean, suggested?: string, kind?: string): Promise<string | null> { return invoke<string | null>('pick_file', { save, suggested: suggested ?? null, kind: kind ?? null }); }
 export async function discardRecovery(docId: string): Promise<void> { await invoke('discard_recovery', { docId }); }
 // 恢复目录名是 docId 的哈希，合并重复快照时直接用快照记录的目录，避免哈希算法在两侧重复实现。
 export async function discardRecoveryAt(directory: string): Promise<void> { await invoke('discard_recovery_dir', { directory }); }

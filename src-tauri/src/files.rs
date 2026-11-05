@@ -86,9 +86,15 @@ pub struct Settings {
     last_session: Option<LastSession>,
     #[serde(default = "default_backup_count", alias = "backupCount")]
     backup_count: u32,
+    // v0.3.0：界面缩放（80–200，步进 10）与最近一次检查更新的时间戳（毫秒）。
+    #[serde(default = "default_ui_scale")]
+    ui_scale: u32,
+    #[serde(default)]
+    last_update_check: u64,
     #[serde(default)]
     shortcuts: std::collections::BTreeMap<String, String>,
 }
+fn default_ui_scale() -> u32 { 100 }
 fn default_sidebar_width() -> f64 { 216.0 }
 fn default_file_list_ratio() -> f64 { 60.0 }
 fn default_split() -> f64 { 50.0 }
@@ -106,7 +112,7 @@ impl Default for Settings {
             theme: "system".into(), code_theme: "light".into(), default_mode: "edit".into(), show_source: default_show_source(), split: default_split(),
             paper_enabled: false, paper_zoom: default_paper_zoom(), paper_layout: "continuous".into(), paper_align: "justify".into(), image_layout: "fit".into(), sidebar_width: default_sidebar_width(), file_list_ratio: default_file_list_ratio(), outline_collapsed: false,
             font_body: String::new(), font_mono: String::new(), font_size: default_font_size(), font_unit: "px".into(), sidebar_visible: true, toolbar_visible: true, last_view: None, line_height: default_line_height(),
-            recent: Vec::new(), recent_folders: Vec::new(), last_session: None, backup_count: default_backup_count(), shortcuts: std::collections::BTreeMap::new(),
+            recent: Vec::new(), recent_folders: Vec::new(), last_session: None, backup_count: default_backup_count(), ui_scale: default_ui_scale(), last_update_check: 0, shortcuts: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -346,7 +352,11 @@ pub fn read_document_image(window: tauri::WebviewWindow, path: String, relative:
     crate::persistence::read_image(window, parent, name)
 }
 pub(crate) fn dialog(filter_index: u32, title: &str, suggested: Option<&str>, save: bool, extension: &str, owner: Option<windows::Win32::Foundation::HWND>) -> Option<String> {
-    let filter_text = match extension { "docx" => "Word 文档\0*.docx\0\0", "exe" => "Pandoc 程序\0pandoc.exe\0\0", "image" => "图片\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg\0所有文件\0*.*\0\0", "html" => "HTML\0*.html;*.htm\0所有文件\0*.*\0\0", "pdf" => "PDF\0*.pdf\0所有文件\0*.*\0\0", "zip" => "Zip 压缩包\0*.zip\0所有文件\0*.*\0\0", _ => "Markdown\0*.md;*.markdown;*.txt\0所有文件\0*.*\0\0" };
+    let filter_text = match extension { "docx" => "Word 文档\0*.docx\0\0", "exe" => "Pandoc 程序\0pandoc.exe\0\0", "image" => "图片\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg\0所有文件\0*.*\0\0", "html" => "HTML\0*.html;*.htm\0所有文件\0*.*\0\0", "pdf" => "PDF\0*.pdf\0所有文件\0*.*\0\0", "zip" => "Zip 压缩包\0*.zip\0所有文件\0*.*\0\0",
+        // v0.3.0：打开任意支持的文档；txt/代码可编辑，pdf/docx 只读查看。
+        "any" => "支持的文档\0*.md;*.markdown;*.txt;*.pdf;*.docx;*.doc;*.py;*.m;*.json;*.yaml;*.yml;*.js;*.mjs;*.ts;*.tsx;*.c;*.h;*.cpp;*.hpp;*.rs;*.go;*.java;*.cs;*.sh;*.ps1;*.bat;*.sql;*.html;*.css;*.xml;*.toml;*.ini;*.tex;*.r;*.lua;*.rb;*.php;*.vue;*.scss;*.less;*.lua;*.pl;*.kt;*.swift;*.jl\0所有文件\0*.*\0\0",
+        "text" => "文本文件\0*.md;*.markdown;*.txt;*.log;*.json;*.yaml;*.yml;*.py;*.js;*.ts;*.c;*.h;*.cpp;*.rs;*.go;*.java;*.cs;*.sh;*.ps1;*.sql;*.html;*.css;*.xml;*.toml;*.ini;*.tex;*.r;*.lua;*.rb;*.php\0所有文件\0*.*\0\0",
+        _ => "Markdown\0*.md;*.markdown;*.txt\0所有文件\0*.*\0\0" };
     let filter: Vec<u16> = crate::i18n::text(filter_text).encode_utf16().collect();
     let mut name: Vec<u16> = suggested.unwrap_or("").encode_utf16().chain(Some(0)).collect();
     name.resize(1024, 0);
@@ -421,9 +431,10 @@ pub fn clipboard_image_paths() -> Result<Vec<String>, String> {
 }
 // E-1：系统文件选择器；取消返回 null，不改变任何文档状态。
 #[tauri::command]
-pub fn pick_file(window: tauri::WebviewWindow, save: bool, suggested: Option<String>) -> Option<String> {
+pub fn pick_file(window: tauri::WebviewWindow, save: bool, suggested: Option<String>, kind: Option<String>) -> Option<String> {
     let owner = window.hwnd().ok().map(|handle| windows::Win32::Foundation::HWND(handle.0 as _));
-    dialog(1, if save { "保存 Markdown 文件" } else { "打开 Markdown 文件" }, suggested.as_deref(), save, "md", owner)
+    let extension = if save { match kind.as_deref() { Some("code") | Some("text") => "text", _ => "md" } } else { "any" };
+    dialog(1, if save { "保存文件" } else { "打开文件" }, suggested.as_deref(), save, extension, owner)
 }
 #[tauri::command]
 pub fn pick_export(window: tauri::WebviewWindow, format: String, suggested: Option<String>) -> Result<Option<String>, String> {
@@ -531,7 +542,7 @@ pub fn reveal_document(path: String) -> Result<(), String> {
 // 设置窗口只复用配置读写，不放宽文档恢复和图片资源的权限。
 fn settings_root(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> Result<PathBuf, String> {
     use tauri::Manager;
-    if ["settings", "help", "shortcuts"].contains(&window.label()) { return crate::persistence::app_root(app, &app.get_webview_window("main").ok_or("主窗口不存在")?); }
+    if ["settings", "help", "shortcuts", "update"].contains(&window.label()) { return crate::persistence::app_root(app, &app.get_webview_window("main").ok_or("主窗口不存在")?); }
     crate::persistence::app_root(app, window)
 }
 #[tauri::command]
@@ -598,3 +609,101 @@ pub fn write_settings(app: tauri::AppHandle, window: tauri::WebviewWindow, state
     for label in ["main", "settings", "help", "shortcuts"] { if label != window.label() { let _ = app.emit_to(label, "settings-changed", ()); } }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn settings_bridge_and_legacy_keys() {
+        let defaults = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(defaults["backup_count"], 0);
+        assert_eq!(defaults["default_mode"], "edit");
+        assert_eq!(defaults["show_source"], true);
+        assert!(defaults.get("backupCount").is_none());
+        for json in [
+            r#"{"default_mode":"read","backup_count":4,"font_body":"中文字体","font_mono":"Consolas","font_size":18,"line_height":2.0}"#,
+            r#"{"defaultMode":"read","backupCount":4,"fontBody":"中文字体","fontMono":"Consolas","fontSize":18,"lineHeight":2.0}"#,
+        ] {
+            let settings: Settings = serde_json::from_str(json).unwrap();
+            let output = serde_json::to_value(settings).unwrap();
+            assert_eq!(output["default_mode"], "read");
+            assert_eq!(output["show_source"], true);
+            assert_eq!(output["backup_count"], 4);
+            assert_eq!(output["font_body"], "中文字体");
+            assert_eq!(output["font_size"], 18.0);
+            assert_eq!(output["line_height"], 2.0);
+        }
+    }
+    #[test]
+    fn source_visibility_settings_roundtrip() {
+        for json in [r#"{"show_source":false}"#, r#"{"showSource":false}"#] {
+            let settings: Settings = serde_json::from_str(json).unwrap();
+            assert!(!settings.show_source);
+            let saved = serde_json::to_string(&settings).unwrap();
+            assert!(!serde_json::from_str::<Settings>(&saved).unwrap().show_source);
+        }
+    }
+    #[test]
+    fn paper_zoom_default_range_and_roundtrip() {
+        let defaults = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(defaults["paper_zoom"], 1.0);
+        // 旧配置没有 paper_zoom 字段时回落 100%，读取旧配置不失败、不丢其它字段。
+        let legacy: Settings = serde_json::from_str(r#"{"theme":"dark","paper_enabled":true}"#).unwrap();
+        assert_eq!(legacy.paper_zoom, 1.0);
+        assert!(legacy.paper_enabled);
+        assert_eq!(legacy.theme, "dark");
+        for zoom in [0.25, 0.5, 1.0, 1.6, 2.5] {
+            let settings: Settings = serde_json::from_str(&format!(r#"{{"paper_zoom":{zoom}}}"#)).unwrap();
+            assert!(valid_paper_zoom(settings.paper_zoom));
+            let saved = serde_json::to_value(&settings).unwrap();
+            assert_eq!(saved["paper_zoom"], zoom);
+            assert_eq!(serde_json::from_value::<Settings>(saved).unwrap().paper_zoom, zoom);
+        }
+        // 超出 25%–250%（含 NaN/∞）一律判无效，由 write_settings 拒绝写盘。
+        for zoom in [0.0, 0.24, 2.5001, 2.51, 5.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(!valid_paper_zoom(zoom), "{zoom}");
+        }
+    }
+    #[test]
+    fn paper_zoom_invalid_config_is_normalized_on_read() {
+        let fixed = normalized(serde_json::from_str(r#"{"paper_zoom":5.0,"recent":["a","b","c","d","e","f"]}"#).unwrap());
+        assert_eq!(fixed.paper_zoom, 1.0);
+        assert_eq!(fixed.recent.len(), RECENT_LIMIT);
+        assert_eq!(normalized(serde_json::from_str(r#"{"paper_zoom":1.75}"#).unwrap()).paper_zoom, 1.75);
+    }
+    #[test]
+    fn filename_validation() {
+        for name in ["", ".", "..", "a/b.md", "a\\b.md", "a:.md", "CON.md", "LPT1.txt", "NUL", "x.", "x "] { assert!(!valid_filename(name), "{name}"); }
+        for name in ["中文 文件.md", "a.md", "CONtext.md", "COM10.md"] { assert!(valid_filename(name), "{name}"); }
+    }
+    #[test]
+    fn encoding_detection_and_roundtrip() {
+        let (text, encoding, bom) = decode("中文".as_bytes()).unwrap();
+        assert_eq!((text.as_str(), encoding.as_str(), bom), ("中文", "utf-8", false));
+        let mut with_bom = vec![0xEF, 0xBB, 0xBF];
+        with_bom.extend_from_slice("中文".as_bytes());
+        let (text, encoding, bom) = decode(&with_bom).unwrap();
+        assert!(bom && encoding == "utf-8" && text.starts_with('\u{feff}'));
+        assert_eq!(encode(&text, "utf-8", bom).unwrap(), with_bom);
+        let gbk = gbk_encode("中文").unwrap();
+        assert_eq!(gbk, vec![0xD6, 0xD0, 0xCE, 0xC4]);
+        let (text, encoding, bom) = decode(&gbk).unwrap();
+        assert_eq!((text.as_str(), encoding.as_str(), bom), ("中文", "gbk", false));
+        assert!(gbk_encode("😀").is_err());
+        for encoding in ["utf-16le", "utf-16be"] {
+            let original = "\u{feff}中文 😀\r\n";
+            let bytes = encode(original, encoding, true).unwrap();
+            let (text, detected, bom) = decode(&bytes).unwrap();
+            assert_eq!((text.as_str(), detected.as_str(), bom), (original, encoding, true));
+            assert_eq!(encode(&text, &detected, bom).unwrap(), bytes);
+            let mut truncated = bytes.clone(); truncated.pop(); assert!(decode(&truncated).is_err());
+        }
+        assert_eq!(newline_of("a\r\nb"), "\r\n");
+        assert_eq!(newline_of("a\nb"), "\n");
+        assert_eq!(newline_of("abc"), "\n");
+        assert_eq!(fingerprint_bytes(b"abc"), fingerprint_bytes(b"abc"));
+        assert_ne!(fingerprint_bytes(b"abc"), fingerprint_bytes(b"abd"));
+    }
+}
+
+

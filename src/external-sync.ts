@@ -19,6 +19,8 @@ export async function setupExternalSync(options: Options) {
     try {
       for(const doc of [...options.workspace.documents.values()]) {
         if(!doc.path||doc.welcome)continue;
+        // v0.3.0：PDF/Word 为二进制只读文档，不参与文本外部修改比较。
+        if(doc.kind==='pdf'||doc.kind==='docx'){conflicts.delete(doc.id);continue;}
         if(doc.composition||doc.saveStatus==='saving'||doc.fileOperation){again=true;continue;}
         try {
           const path=doc.path,file=await readTextFile(path);

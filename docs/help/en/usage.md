@@ -11,6 +11,7 @@ MDRE combines Markdown source editing, rich text and reading in one workspace. S
 | Tabs | Ctrl+Tab switches tabs, Ctrl+W closes one, and dragging reorders them. The plus button opens a welcome tab. Closing the last file returns to the welcome page. |
 | Recent items | The File menu retains five recent files and folders. Opening the same path reuses its tab; identical names in different folders remain separate. |
 | File association | Register the .md association in Settings to open Markdown files with a double click. |
+| Supported documents | The same workspace opens Markdown, plain text, common code files, PDF and Word documents. They share tabs, recent items and the file list. |
 
 The sidebar switches between Files, Images and Outline. Expand or refresh folders; the sidebar New button creates a file in the open folder without overwriting another file. Drag the sidebar edge to resize it and the horizontal divider to resize its file lists. Reopening the sidebar restores its selected category.
 
@@ -56,6 +57,14 @@ Default image display applies to **both A4 and non-A4 views**. Fit body width fi
 
 Images lists names and paths in reference order. Click to locate a reference; double-click its name to open the local directory. Remote URLs and data URIs have no local folder. Moving original images can break absolute references; use a shareable copy when moving or sharing a document.
 
+## PDF, Word and code files
+
+The desktop edition opens these documents in tabs. The VS Code extension uses the MDRE viewer for PDF and Word and the editor's own text editor for plain text and code. File lists and the Open dialog both accept them.
+
+- **PDF:** read-only. The page indicator and zoom value sit at the bottom-right; the − and + buttons step by 5%, Ctrl+wheel steps by 0.1%, and the range is 10%–400%. The Outline sidebar shows page thumbnails with page numbers; click one to jump. Large files are read on demand rather than loaded whole, and editing controls plus character and cursor statistics are hidden while viewing.
+- **Word:** read-only continuous reading with heading navigation. Body text, lists, tables and images are kept; Word equations, complex layouts, headers and footers may simplify. Use a PDF export or Word itself when exact layout or equations matter.
+- **Plain text and code:** editable, saveable and undoable, with language detection, syntax highlighting, line numbers and indentation. Fonts, size and line height follow the body and monospace font settings.
+
 ## Views and reading
 
 The view menu provides four presets; manual changes display Custom view. The last combination is restored on reopening.
@@ -70,6 +79,7 @@ The view menu provides four presets; manual changes display Custom view. The las
 F11 switches between Focus mode and Full editing. Sidebar and toolbar visibility are independent. Reading mode temporarily hides source and disables editing; returning to editing restores the previous source preference.
 
 - **Non-A4 width:** the status slider ranges from 60% to 100%, initially 80% for new configurations. It remembers changes and affects screen reading only. Text defaults to justified alignment; choose justified, left, center or right under Settings → Paper & images.
+- **Interface scale:** Settings → Appearance & reading offers an 80%–200% scale in 10% steps with a dropdown and −/+ buttons, or Ctrl+wheel for quick changes. It enlarges the title bar, menus, toolbar, sidebar (including the file list), status bar, Find bar and dialogs; body text, source text and PDF pages are unaffected. Changes apply immediately and are remembered.
 - **A4 layout:** 210 × 297mm paper, continuous or paged, with independent left, center, right or justified body alignment.
 - **Zoom and pages:** Ctrl+wheel in the preview zooms from 25% to 250%. The zoom level is saved: reopening keeps the last ratio, and every document you open afterwards uses it. Paged layout calculates paper first, then scales it. One to three pages fit per row; page numbers follow reading order.
 - **Reading position:** reopening restores the reading anchor and source scroll. Visible text coordinates scrolling across continuous, paged and zoomed layouts.
@@ -90,7 +100,7 @@ Parsing and rendering of long documents have been optimized: large text-heavy fi
 
 ## Search and navigation
 
-Ctrl+F opens Find; Ctrl+H opens Replace. Case matching, whole words and regular expressions are supported. Enter selects the next result and Shift+Enter the previous result. Replacement can be undone.
+Ctrl+F opens Find; Ctrl+H opens Replace. Case matching, whole words and regular expressions are supported. Enter selects the next result and Shift+Enter the previous result. Replacement can be undone. The Find bar opens above the document instead of using the sidebar, spans source and preview when source is shown, and uses matching up and down arrow icons.
 
 The outline follows heading hierarchy and reading position. Clicking a heading positions it near the top. Document TOCs and internal links use heading anchors; an internal link may use `#heading-text`, `#sec-…` or an explicit ID, case and URL-encoding differences are ignored, and duplicate headings resolve to the first one. Explicit IDs provide stable addresses. A relative `.md` link such as `[other](other.md)`, optionally with a `#section` anchor, opens the target document in a new tab when clicked in editing or reading mode; an unsaved document asks you to save it first. Go to line is available through the menu and shortcut.
 
@@ -147,17 +157,18 @@ Complex headers/footers, sections, revisions, comments, floating objects, fields
 
 ## Settings and shortcuts
 
-Settings opens a separate desktop window with remembered geometry and support for moving between displays. Categories cover Appearance & reading, Paper & images, Sidebar navigation, Editing & files, Word conversion and Keyboard shortcuts. Search finds options; the reading preview appears only in Appearance.
+Settings opens a separate desktop window with remembered geometry and support for moving between displays. Categories cover Appearance & reading, Paper & images, Sidebar navigation, Editing & files, Word conversion and Keyboard shortcuts. Search finds options; the reading preview appears only in Appearance. Changes take effect and save immediately; there is no Apply or Cancel button, and the page stays open.
 
 | Action | Effect |
 | --- | --- |
-| Apply | Save and keep the page open. |
-| OK | Save and close. |
-| Cancel or close Settings | Discard unapplied changes. |
-| Reset this category | Reset only the current category; Apply or OK saves it. |
-| Exit the application | After documents are handled, validate and save the settings draft, then close Settings. Invalid settings or write failures keep the window available for correction. |
+| Close | Close Settings; changes are already saved. |
+| Reset this category | Reset only the current category and apply it immediately. |
+| Check for updates | Open the update checker (desktop edition). |
+| Help | Open offline help. |
 
-Language offers Simplified Chinese and English and applies to menus, tooltips, welcome, settings and offline help. Documents, file paths and original license texts are preserved. Startup mode applies at the next launch. Body and monospace font choices list fonts installed on the system. Animations offer System, On and Off; System follows reduced-motion preferences. Transitions cross-fade in place for about 0.8 seconds: outgoing content fades out where it is, incoming content fades in at its final position, and nothing slides. The text input surface stays steady during composition input. Settings, help and shortcut windows remember their last position, reopen there, and are kept inside the visible screen.
+Language offers Simplified Chinese and English and applies to menus, tooltips, welcome, settings and offline help. Documents, file paths and original license texts are preserved. Startup mode applies at the next launch. Body and monospace font choices list fonts installed on the system. Animations offer System, On and Off; System follows reduced-motion preferences. Transitions cross-fade in place for about 0.4 seconds: outgoing content fades out where it is, incoming content fades in at its final position, and nothing slides. The text input surface stays steady during composition input. Settings, help and shortcut windows remember their last position, reopen there, and are kept inside the visible screen.
+
+The desktop edition can check for updates from the version button next to Help in the title bar or from Settings → Check for updates; both open a dedicated update window. It also checks automatically at 12:00 each day and catches up on the next launch if a check was missed. A new release shows a blue dot on the version button. The update window remembers its position and size like the settings and help windows, can be moved by its title bar and resized from its edges, and follows the interface language. It shows the current and latest versions, publication date, download size and release notes. You can open the download page or download `mdre.exe` in the app, verify its SHA-256, replace the current program, then choose Restart now or Restart later. Network failures or a read-only program folder show a message and fall back to the download page.
 
 Help and Keyboard shortcuts use title-bar controls. Desktop auxiliary windows use native minimize, maximize, close and edge resizing. Embedded windows provide equivalent controls and resizing at all edges; minimize collapses the content, and maximize toggles the available viewport. Help has no bottom Close button. Esc closes help.
 

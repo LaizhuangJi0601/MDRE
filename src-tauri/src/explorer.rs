@@ -7,6 +7,21 @@ use windows::Win32::{Graphics::Gdi::*, Storage::FileSystem::{FILE_ATTRIBUTE_DIRE
 #[serde(rename_all = "camelCase")]
 pub struct Entry { name: String, path: String, directory: bool, editable: bool, icon: Option<String> }
 
+// v0.3.0：可在 MDRE 内直接打开的扩展名（Markdown、纯文本、常见代码、PDF 与 Word）。
+const OPENABLE_EXTENSIONS: &[&str] = &[
+    "md", "markdown", "txt", "log", "pdf", "docx", "doc",
+    "py", "pyw", "pyi", "m", "r", "jl", "lua", "pl", "pm", "t", "php", "rb", "go", "rs",
+    "c", "h", "cpp", "cxx", "cc", "hpp", "hh", "hxx", "cs", "java", "kt", "kts", "swift", "scala",
+    "js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts", "json", "jsonc", "jsonl", "ipynb",
+    "yaml", "yml", "toml", "ini", "conf", "cfg", "properties", "env", "sh", "bash", "zsh",
+    "ps1", "psm1", "bat", "cmd", "sql", "html", "htm", "xhtml", "vue", "svelte", "css", "scss", "less", "sass",
+    "xml", "xsl", "xslt", "svg", "cmake", "mk", "makefile", "dockerfile", "tex", "sty", "cls",
+    "asm", "vhd", "vhdl", "v", "sv", "dart", "diff", "patch", "http", "proto", "vb", "vbs",
+    "hs", "clj", "erl", "ml", "fs", "tcl", "pas", "lisp", "coffee", "styl", "cr", "d", "elm",
+    "f", "f90", "for", "feature", "jinja", "j2", "wl", "mo", "sln", "csproj", "vcxproj",
+];
+fn is_openable(extension: &str) -> bool { OPENABLE_EXTENSIONS.contains(&extension) }
+
 fn wide(value: &str) -> Vec<u16> { value.encode_utf16().chain(Some(0)).collect() }
 
 // 从 Windows 文件关联获取小图标，而不是固定模拟文件类型图标。
@@ -51,7 +66,8 @@ pub fn list_directory(path: String) -> Result<Vec<Entry>, String> {
         let directory = kind.is_dir();
         if !directory && !kind.is_file() { continue; }
         let extension = item.path().extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
-        let editable = !directory && ["md", "markdown", "txt"].contains(&extension.as_str());
+        // v0.3.0：文件列表可直接打开 Markdown、纯文本、常见代码、PDF 与 Word 文档。
+        let editable = !directory && is_openable(&extension);
         let path = item.path().to_string_lossy().into_owned();
         let key = if directory { "folder".into() } else { extension };
         let icon = icons.entry(key).or_insert_with(|| system_icon(&path, directory).ok()).clone();

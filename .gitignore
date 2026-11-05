@@ -33,3 +33,6 @@ src-tauri/gen/
 
 !/scripts/font-assets.mjs
 !/scripts/font-assets.d.mts
+
+!/scripts/pdf-assets.mjs
+!/scripts/pdf-assets.d.mts

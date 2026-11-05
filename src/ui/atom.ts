@@ -23,7 +23,7 @@ export function mathInlineView(initial: PMNode, _view: EditorView, getPos: () =>
     dom.dataset.latex = latex;
     languageAttributes(dom,element=>{element.title=`${String(node.attrs.latex??'')}\n${t('（双击可视化编辑）')}`;element.setAttribute('aria-label',`${t(node.type.name==='math_inline'?'公式：':'块级公式：')}${String(node.attrs.latex??'')}`);});
     dom.setAttribute('role', 'button');
-
+    
     dom.contentEditable = 'false';
   };
   dom.addEventListener('mousedown', event => { event.preventDefault(); });
@@ -52,7 +52,7 @@ export function mathBlockView(initial: PMNode, _view: EditorView, getPos: () => 
     dom.dataset.latex = latex;
     dom.dataset.block = String(node.attrs.id);
     languageAttributes(dom,element=>{element.title=`${String(node.attrs.latex??'')}\n${t('（双击可视化编辑）')}`;element.setAttribute('aria-label',`${t(node.type.name==='math_inline'?'公式：':'块级公式：')}${String(node.attrs.latex??'')}`);});
-
+    
   };
   dom.addEventListener('mousedown', event => event.preventDefault());
   dom.addEventListener('dblclick', event => {

@@ -38,6 +38,7 @@ export function setupWord(options: WordOptions) {
   };
   const exportDocx = async (explicitPath?: string) => {
     const doc = options.workspace.active; if (!doc || doc.welcome) throw new Error('请先打开文档。');
+    if (doc.kind !== 'markdown') throw new Error('Word 导出仅用于 Markdown 文档。');
     options.flush(); if (doc.composition) throw new Error('请先提交组合输入再导出。');
     // 导出采用调用时快照，转换期间的后续编辑不受影响。
     const text = doc.source;
@@ -70,7 +71,7 @@ export function setupWord(options: WordOptions) {
   else document.getElementById('open')!.after(importButton);
   document.getElementById('html')!.after(button('word-export','导出 Word（.docx）…',()=>exportDocx()));
   document.getElementById('status-export-menu')?.append(button('status-word-export','导出 Word（.docx）…',()=>exportDocx()));
-  function paintButtons() { for(const b of buttons)b.disabled=busy || b.id.includes('export') && (!options.workspace.active || !!options.workspace.active.welcome); }
+  function paintButtons() { for(const b of buttons)b.disabled=busy || b.id.includes('export') && (!options.workspace.active || !!options.workspace.active.welcome || options.workspace.active.kind !== 'markdown'); }
   paintButtons();
   window.addEventListener('mdre:document-changed',paintButtons);
   Object.assign(window, {mdreWord:{exportDocx,importDocx}});

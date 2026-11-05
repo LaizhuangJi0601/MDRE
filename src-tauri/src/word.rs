@@ -127,3 +127,20 @@ pub async fn word_convert(window: tauri::WebviewWindow, direction: String, tool:
         result
     }).await.map_err(|e| e.to_string())?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::strip_html_title;
+    #[test]
+    fn export_html_drops_document_title() {
+        let html = r#"<!doctype html><html lang="zh-CN"><head><title>MDRE 文档快照</title></head><body><h1>标题</h1><p>正文</p></body></html>"#;
+        let cleaned = strip_html_title(html);
+        assert!(!cleaned.to_ascii_lowercase().contains("<title"));
+        assert!(cleaned.contains("<h1>标题</h1>") && cleaned.contains("<p>正文</p>"));
+        // 大小写、带属性、重复标题都剥离；其它标签与正文原样保留。
+        assert_eq!(strip_html_title(r#"<TITLE data-x="1">One</TITLE><p>a</p><title>Two</title><p>b</p>"#), "<p>a</p><p>b</p>");
+        // 没有标题的导出正文完全不变。
+        let plain = r#"<html><body><p>中文 &amp; 正文</p><img src="data:image/png;base64,AA=="></body></html>"#;
+        assert_eq!(strip_html_title(plain), plain);
+    }
+}

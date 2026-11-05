@@ -181,6 +181,7 @@ export async function exportShareCopy(explicitPath?: string): Promise<ShareCopyR
   const doc = api.workspace?.active;
   if (!doc) throw new Error('没有可导出的文档。');
   if (doc.welcome) throw new Error('欢迎页没有可导出的文档。');
+  if (doc.kind !== 'markdown') throw new Error('可分享副本仅用于 Markdown 文档。');
   if (doc.modelStale) throw new Error('文档模型待刷新，请先刷新渲染再导出。');
   const title = safeDocumentTitle(String(api.documentTitle(doc) ?? ''));
   const markdownName = `${title}.md`;

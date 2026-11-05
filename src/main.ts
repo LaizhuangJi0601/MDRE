@@ -43,10 +43,16 @@ import { groupToolbar } from './ui/toolbar';
 import { setupFiles } from './ui/files';
 import { icon, type Icon } from './ui/icons';
 import { setupMenus, setupTooltips, setupWindowControls } from './ui/chrome';
+import { applyUiScale, setupUiScaleWheel } from './ui/ui-scale';
+import { setupUpdateIndicator } from './ui/update';
 import { captureView, restoreView, divider, applyFocusMode } from './ui/layout';
 import { ScrollSync } from './ui/scroll';
 import { setupDefaultMode, setupTheme } from './ui/theme';
 import { searchPlugin, find, replaceAll, replaceCurrent } from './ui/search';
+import { AuxViews } from './ui/auxview';
+import { detectFileKind, supportedCodeExtensions } from './formats';
+import './formats/formats.css';
+import './pdf/viewer.css';
 import { currentOutline, outlineEntries, renderOutline, type OutlineEntry } from './ui/outline';
 import { readRecovery, restore, RecoveryManager } from './persistence/recovery';
 import { SaveQueue, autosaveAll, directoryOf, discardRecovery, discardRecoveryAt, pathKey, pickFile, readTextFile, samePath, startAutosave } from './persistence/save';
@@ -79,16 +85,70 @@ const closestOf = <T extends Element = Element>(target: EventTarget | null, sele
   target instanceof Element ? target.closest<T>(selector) : null;
 const settingsRead = await loadSettings().catch(() => null);
 setupLanguage();
+applyUiScale();
 setupMotion();
 const paper = setupPaper($('render'), $('paper-toggle') as HTMLButtonElement, $('paper-zoom'), reason => error(reason));
 const sidebar = setupSidebar(reason => error(reason));
 let sourceVisible = settings().last_view?.source ?? settings().show_source, sourceDefault = settings().show_source;
 const workspace = new Workspace();
+// v0.3.0：非 Markdown 文档视图（txt/代码/docx/pdf）在窗口初始化后创建，供 showDocument/status 使用。
+let auxViews: AuxViews | null = null;
 let layoutRestore=0, readingInteraction=0;
 let restoringWorkspace = true;
 let externalSync: Awaited<ReturnType<typeof setupExternalSync>> | undefined;
 const workspaceRestoreErrors: string[] = [];
 const filesPanel = setupFiles({ open: openPath, activate: id => action(() => switchTo(id)), fail: reason => error(reason), reveal: () => { toggleOutline(false); status(); }, opened: updateRecentFolder, changed: () => { void rememberWorkspace().catch(reason => error(reason)); } });
+// v0.3.0：非 Markdown 文档（txt/代码/docx/pdf）的视图与文件读取适配。
+const dataUrlToArrayBuffer = (dataUrl: string): ArrayBuffer => {
+  const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes.buffer;
+};
+const pdfLabels = (): Record<string, string> => ({
+  loading: t('正在载入 PDF'), loadingPercent: t('正在载入 PDF {percent}%'),
+  zoomIn: t('放大'), zoomOut: t('缩小'), zoomLevel: t('缩放 {percent}%'),
+  pageOf: '{page} / {pages}', goToPage: t('跳到第 {page} 页'), page: t('第 {page} 页'), thumbnails: t('页面缩略图'),
+  errorTitle: t('无法打开 PDF'), errorInvalid: t('此文件不是有效的 PDF。'), errorPassword: t('此 PDF 受密码保护，暂不支持打开。'),
+  errorRead: t('无法读取 PDF 文件。'), errorRender: t('PDF 页面渲染失败。'), errorUnknown: t('无法打开 PDF。'),
+});
+const codeAppearance = () => {
+  const root = getComputedStyle(document.documentElement);
+  const family = root.getPropertyValue('--font-mono').trim();
+  const size = Number.parseFloat(root.getPropertyValue('--font-size'));
+  const lineHeight = Number.parseFloat(root.getPropertyValue('--line-height'));
+  return { fontFamily: family || 'Consolas, "Microsoft YaHei", monospace', fontSize: Number.isFinite(size) ? size : 15, lineHeight: Number.isFinite(lineHeight) ? lineHeight : 1.8, theme: document.documentElement.dataset.theme === 'dark' ? 'dark' as const : 'light' as const };
+};
+const readPdfRange = async (path: string, start: number, end: number): Promise<Uint8Array> => {
+  const length = Math.max(0, Math.min(4 * 1024 * 1024, end - start));
+  if (!length) return new Uint8Array();
+  const buffer = await invoke<ArrayBuffer>('read_file_range', { path, start, length });
+  return new Uint8Array(buffer);
+};
+auxViews = new AuxViews({
+  readRange: readPdfRange,
+  fileLength: path => invoke<number>('pdf_file_length', { path }),
+  readArrayBuffer: async path => dataUrlToArrayBuffer(await invoke<string>('read_binary', { path })),
+  onCodeChange: (id, text) => {
+    const doc = workspace.documents.get(id);
+    if (!doc || doc.kind === 'markdown') return;
+    doc.setPlainSource(text);
+    status();
+  },
+  labels: pdfLabels,
+  appearance: codeAppearance,
+  fail: reason => error(reason),
+  message: text => { $('status-text').textContent = text; },
+});
+// v0.3.0：Ctrl+滚轮调节界面缩放；落在 A4 渲染区时让给 A4 缩放。
+setupUiScaleWheel({
+  exclude: event => paper.enabled && event.target instanceof Element && !!event.target.closest('#render'),
+  onChange: percent => { $('status-text').textContent = `界面缩放 ${percent}%`; },
+});
+// v0.3.0：可拖入/直接打开的扩展名（Markdown、纯文本、常见代码、PDF、Word）。
+const supportedFileExtensions = new Set([...supportedCodeExtensions(), 'md', 'markdown', 'txt', 'pdf', 'docx', 'doc']);
+const isSupportedDocumentPath = (path: string) => supportedFileExtensions.has(path.split('.').pop()?.toLowerCase() ?? '');
 // 侧栏三视图（文件列表 / 图片管理 / 大纲导航）：用原位交叉淡入淡出包住既有切换逻辑，
 // 不改各视图自己的 hidden 实现，桌面版与插件版共用同一段拦截代码。
 // 页签容器由壳层或图片模块创建（图片模块会在启动末尾补 id），因此监听挂在 document 上。
@@ -156,6 +216,11 @@ function selection(): Selection {
 const textCountsCache = new WeakMap<DocumentSession, { revision: number; source: string; chars: number; words: number }>();
 let countsTimer: ReturnType<typeof setTimeout> | undefined;
 function computeTextCounts(doc: DocumentSession): { chars: number; words: number } {
+  // v0.3.0：纯文本/代码文档直接从源码统计，不依赖 Markdown 模型。
+  if (doc.kind !== 'markdown') {
+    const text = doc.source;
+    return { chars: [...text.replace(/\s/g, '')].length, words: (text.match(/[\p{L}\p{N}]+/gu) ?? []).length };
+  }
   if (sourceBytes(doc.source) >= previewLimit) {
     const text = doc.source;
     return { chars: [...text.replace(/\s/g, '')].length, words: (text.match(/[\p{L}\p{N}]+/gu) ?? []).length };
@@ -188,7 +253,12 @@ function status() {
   document.querySelectorAll<HTMLButtonElement>('button[data-command], #format-toolbar button, .view-tools button, #mode, #save, #save-as, #close-tab, #html, #pdf-open, #backup, #word-export, #status-word-export, #share-copy, #status-share-copy').forEach(button => { button.disabled = !available; });
   document.querySelectorAll<HTMLButtonElement>('#outline-toggle, [data-command="outline-toggle"], [data-command^="view-"], [data-command="toolbar-toggle"]').forEach(button => button.disabled = false);
   $<HTMLButtonElement>('close-tab').disabled = !doc;
+  // v0.3.0：非 Markdown 文档隐藏 Markdown 专用入口、禁用格式工具与导出；状态栏只保留文件与保存状态。
+  const markdown = (doc?.kind ?? 'markdown') === 'markdown';
+  for (const id of ['paper-toggle', 'source-toggle', 'find-open', 'raw']) { const element = document.getElementById(id); if (element) element.hidden = !markdown; }
+  $('mode-picker').hidden = !markdown;
   if (!available) { syncTabs(); document.title = 'MDRE'; $('window-title').textContent = 'MDRE'; $('status-text').textContent = '欢迎使用 MDRE'; for (const id of ['status-counts', 'status-encoding', 'status-position', 'status-path', 'recovery-status']) $(id).textContent = ''; $('render-timing').hidden = true; return; }
+  if (!markdown) { statusAux(doc!); return; }
   const { chars, words } = textCounts(doc);
   const cursor = source.state.selection.main.head, line = source.state.doc.lineAt(cursor);
   const saveText = doc.saveStatus === 'conflict' ? `保存冲突：${doc.saveError}` : doc.saveStatus === 'failed' ? `保存失败：${doc.saveError}` : doc.saveStatus === 'saving' ? '正在保存…' : doc.dirty ? '已修改 · 尚未保存' : doc.path ? '已保存' : '尚未保存为文件';
@@ -220,6 +290,33 @@ function status() {
   $('window-title').textContent = `${doc.title} — MDRE`;
   syncTabs();
   updateOutline();
+}
+// v0.3.0：非 Markdown 文档的状态栏：保留文件名、保存状态与字符统计；代码/纯文本额外显示行列。
+function statusAux(doc: DocumentSession) {
+  const editable = doc.kind === 'code' || doc.kind === 'text';
+  const { chars, words } = textCounts(doc);
+  const saveText = doc.saveStatus === 'conflict' ? `保存冲突：${doc.saveError}` : doc.saveStatus === 'failed' ? `保存失败：${doc.saveError}` : doc.saveStatus === 'saving' ? '正在保存…' : doc.dirty ? '已修改 · 尚未保存' : doc.path ? '已保存' : '尚未保存为文件';
+  $('status-counts').textContent = editable ? `${chars} 字符 · ${words} 词` : '';
+  $('status-encoding').textContent = editable ? doc.encoding.toUpperCase() : '';
+  $('status-encoding').title = editable ? `文件编码：${doc.encoding.toUpperCase()}${doc.bom ? '（BOM）' : ''}` : '';
+  const position = editable ? auxViews?.codePosition() : null;
+  $('status-position').textContent = position ? `行 ${position.line}，列 ${position.column}` : '';
+  const statusText = `${saveText}${doc.saveStatus === 'saving' ? '' : ''}`;
+  if ($('status-text').textContent !== statusText) $('status-text').textContent = statusText;
+  $('status-text').dataset.state = doc.saveStatus === 'conflict' || doc.saveStatus === 'failed' ? 'error' : doc.dirty ? 'modified' : 'saved';
+  $('status-text').title = doc.saveError || `文档版本 r${doc.revision}`;
+  const displayPath = doc.path?.replace(/^\\\\\?\\UNC\\/i, '\\\\').replace(/^\\\\\?\\/, '') ?? '';
+  $('status-path').textContent = displayPath ? displayPath.replace(/^.*[\\/]/, '') : doc.title;
+  $('status-path').title = displayPath || '尚未绑定正式文件';
+  $('recovery-status').textContent = ''; $('recovery-status').title = '';
+  $('render-timing').hidden = true;
+  $('mode-label').textContent = editable ? '编辑模式' : '阅读模式';
+  document.querySelectorAll<HTMLButtonElement>('#format-toolbar button, #format-toolbar input, #format-toolbar select, [data-editable], #html, #pdf-open, #word-export, #status-word-export, #share-copy, #status-share-copy, #backup').forEach(button => { button.disabled = true; });
+  for (const id of ['save', 'save-as']) { const element = document.getElementById(id) as HTMLButtonElement | null; if (element) element.disabled = !editable; }
+  const marker = doc.saveState === 'conflict' || doc.saveState === 'failed' ? '⚠ ' : doc.saveState === 'pending' ? '● ' : '';
+  document.title = `${marker}${doc.title} — MDRE`;
+  $('window-title').textContent = `${doc.title} — MDRE`;
+  syncTabs();
 }
 const tabState = (session: DocumentSession) => session.saveState === 'conflict' || session.saveState === 'failed' ? '⚠' : session.saveState === 'pending' ? '●' : session.recovered ? '↶' : '';
 // 保留标签节点，避免编辑器失焦/保存状态刷新在按下与点击之间替换关闭按钮。
@@ -626,7 +723,15 @@ function showDocumentContent() {
   $('welcome').hidden = !!doc && !doc.welcome; $('panes').hidden = false;
   $('panes').classList.toggle('welcome-state', !doc || doc.welcome);
   if (!doc || doc.welcome) { $('outline-list').replaceChildren(); $('outline-count').textContent = ''; $('outline-empty').hidden = false; }
-  if (!doc || doc.welcome) { previewTicket = null; if (parseTimer) clearTimeout(parseTimer); pendingMode = false; hideHandle(); $('cell-menu').hidden = true; $('search-bar').hidden = true; $('format-toolbar').hidden = false; $('image-handle').hidden = true; render.setProps({ editable: () => false }); mirror = true; source.dispatch({ changes: { from: 0, to: source.state.doc.length, insert: '' }, effects: mode.reconfigure([CMState.readOnly.of(true), CMView.editable.of(false)]) }); mirror = false; status(); return; }
+  if (!doc || doc.welcome) { previewTicket = null; if (parseTimer) clearTimeout(parseTimer); pendingMode = false; hideHandle(); $('cell-menu').hidden = true; $('search-bar').hidden = true; $('format-toolbar').hidden = false; $('image-handle').hidden = true; render.setProps({ editable: () => false }); mirror = true; source.dispatch({ changes: { from: 0, to: source.state.doc.length, insert: '' }, effects: mode.reconfigure([CMState.readOnly.of(true), CMView.editable.of(false)]) }); mirror = false; auxViews?.hide(); status(); return; }
+  // v0.3.0：非 Markdown 文档交给辅助视图（代码编辑/Word 阅读/PDF 查看），不进入 Markdown 渲染管线。
+  if (doc.kind !== 'markdown') {
+    $('search-bar').hidden = true;
+    auxViews?.show({ id: doc.id, kind: doc.kind, title: doc.title, path: doc.path, source: doc.source });
+    status();
+    return;
+  }
+  auxViews?.hide();
   hideHandle(); $('cell-menu').hidden = true;
   $('panes').classList.toggle('read-only', doc.readOnly); applySourceVisibility();
   $('format-toolbar').hidden = false; $('replace-controls').hidden = doc.readOnly;
@@ -648,7 +753,7 @@ function restoreAfterLayout(doc:DocumentSession){
 }
 // 源码栏可见性不改变文档、阅读模式或撤销历史。
 function applySourceVisibility() {
-  const doc = workspace.active, hidden = !sourceVisible || !!doc?.readOnly;
+  const doc = workspace.active, hidden = !sourceVisible || !!doc?.readOnly || (!!doc && doc.kind !== 'markdown');
   $('panes').classList.toggle('source-hidden', hidden);
   $('source-pane').hidden = hidden; $('divider').hidden = hidden;
   const button = $('source-toggle'), label = hidden ? '显示源码' : '隐藏源码';
@@ -682,11 +787,11 @@ function switchTo(id: string) { flushInline(); if (workspace.active && !workspac
 let draggingTab: string | null = null, autosaveTimer: ReturnType<typeof setInterval> | undefined, allowClose = false, closing = false;
 const pendingChoices = new Map<string, Promise<string>>();
 // 确认类弹窗用非模态 show()：标题栏关闭按钮与 Esc 始终可用，不会把窗口锁死。
-function openFloating(dialog: HTMLDialogElement) {
+function openFloating(dialog: HTMLDialogElement) { 
   const scrim=$('scrim');
   // 遮罩与弹窗都在最终位置由浅变深出现；弹窗自身由 motion.ts 统一淡入。
   if(scrim.hidden){scrim.hidden=false;revealSurface(scrim);}
-  if (!dialog.open) positionDialog(dialog);
+  if (!dialog.open) positionDialog(dialog); 
 }
 function closeFloating(dialog: HTMLDialogElement) {
   const scrim=$('scrim');
@@ -757,12 +862,16 @@ async function openPath(path: string, restoring = false): Promise<DocumentSessio
 async function openUniquePath(path: string, restoring = false): Promise<DocumentSession> {
   const existing = [...workspace.documents.values()].find(doc => samePath(doc.path, path));
   if (existing) { switchTo(existing.id); if (!restoring) await updateRecent(existing.path); return existing; }
+  // v0.3.0：PDF/Word 为二进制只读文档，不经过文本解码；txt/代码沿用文本打开与编码检测。
+  const detected = detectFileKind(path);
+  if (detected === 'pdf' || detected === 'docx') return openViewerDocument(path, detected, restoring);
+  const kind = detected === 'code' ? 'code' : detected === 'text' ? 'text' : 'markdown';
   const file = await readTextFile(path);
   const opened=[...workspace.documents.values()].find(doc=>samePath(doc.path,file.path));
   if(opened){switchTo(opened.id);return opened;}
   const doc = new DocumentSession(crypto.randomUUID(), file.text, {
     title: path.replace(/^.*[\\/]/, ''), path: file.path, encoding: file.encoding, bom: file.bom,
-    diskFingerprint: file.fingerprint, savedText: file.text,
+    diskFingerprint: file.fingerprint, savedText: file.text, kind,
   });
   const position=settings().reading_positions[pathKey(file.path)];
   if(position){doc.readingAnchor={block:'',source:position.source,offset:position.offset};doc.sourceScroll={top:position.sourceTop,left:position.sourceLeft};}
@@ -774,6 +883,17 @@ async function openUniquePath(path: string, restoring = false): Promise<Document
   return doc;
 }
 async function openViaPicker() { const picked = await pickFile(false); if (picked) await openPath(picked); }
+// v0.3.0：PDF/Word 只读文档只记录路径，内容由 AuxViews 按需读取（PDF 走范围读取）。
+async function openViewerDocument(path: string, kind: 'pdf' | 'docx', restoring = false): Promise<DocumentSession> {
+  const doc = new DocumentSession(crypto.randomUUID(), '', {
+    title: path.replace(/^.*[\\/]/, ''), path, encoding: 'utf-8', bom: false, savedText: '', kind,
+  });
+  doc.readOnly = true;
+  workspace.add(doc); switchTo(doc.id);
+  if (!restoring) await updateRecent(path);
+  showDocument();
+  return doc;
+}
 // D-18：新建标签只是空白页，不绑定任何文件；继承默认启动模式。
 // 空白文档按序号命名（未命名.md、未命名 2.md…），避免多标签标题完全一样而无法区分。
 function untitledTitle(): string {
@@ -950,8 +1070,8 @@ async function closeTab(id: string) {
   if (doc.composition || workspace.active?.composition) throw new Error('请先提交组合输入，再关闭标签。');
   flushInline(doc);
   if (workspace.activeId !== id) switchTo(id);
-  captureView(doc, render, source);
-  if (doc.dirty || (!doc.path && !!doc.source)) {
+  if (doc.kind === 'markdown') captureView(doc, render, source);
+  if (doc.kind === 'markdown' && (doc.dirty || (!doc.path && !!doc.source))) {
     const choice = await unsavedChoice(doc);
     if (choice === 'cancel') return;
     if (choice === 'save') { if (!(await saveDocument(doc, !doc.path))) return; }
@@ -960,6 +1080,7 @@ async function closeTab(id: string) {
   const order = [...workspace.documents.keys()], index = order.indexOf(id);
   const next = order[index + 1] ?? order[index - 1] ?? null;
   workspace.remove(id, next);
+  if (doc.kind !== 'markdown') auxViews?.destroy(id);
   // 无未保存内容就关闭时也要清掉恢复快照，否则下次启动会凭旧快照把这份文件“复活”。
   if (!doc.discarded && !doc.dirty) { doc.discarded = true; if (isTauri()) await discardRecovery(doc.id).catch(() => {}); }
   if (workspace.active && !workspace.active.welcome && !workspace.active.path && !workspace.active.source) workspace.active.readOnly = settings().default_mode === 'read';
@@ -1006,6 +1127,8 @@ async function closeWindow() {
   } finally { closing = false; }
 }
 function switchMode(readOnly = !workspace.active?.readOnly) {
+  // v0.3.0：代码/纯文本/PDF/Word 文档没有编辑/阅读模式切换。
+  if (workspace.active?.kind !== 'markdown') return;
   if (!workspace.active) return;
   if (readOnly === workspace.active.readOnly) return;
   if (workspace.active.composition) { pendingMode = !pendingMode; status(); return; }
@@ -1567,6 +1690,7 @@ source.contentDOM.addEventListener('focus', () => { if (workspace.active) worksp
 function download(name: string, data: BlobPart, mime: string) { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([data], { type: mime })); link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
 async function exportHtml(explicitPath?: string, doc = workspace.active) {
   if (!doc) return;
+  if (doc.kind !== 'markdown') throw new Error('HTML 导出仅用于 Markdown 文档。');
   flushInline(doc);
   if (doc.composition) throw new Error('请先提交组合输入再导出。');
   const text = doc.source, revision = doc.revision, suggested = documentTitle(doc) + '.html';
@@ -1578,6 +1702,7 @@ async function exportHtml(explicitPath?: string, doc = workspace.active) {
 }
 async function exportPdf(explicitPath?: string, doc = workspace.active, layout?: 'paged' | 'long') {
   if (!doc) return;
+  if (doc.kind !== 'markdown') throw new Error('PDF 导出仅用于 Markdown 文档。');
   flushInline(doc);
   if (!isTauri()) throw new Error('原生 PDF 请在 Tauri 桌面应用中执行。');
   if (doc.composition) throw new Error('请先提交组合输入再导出。');
@@ -2038,11 +2163,11 @@ document.addEventListener('keydown', event => {
   if (key === 'tab') { event.preventDefault(); action(() => cycleTab(event.shiftKey ? -1 : 1)); }
   else if (key === 'w') { event.preventDefault(); action(async () => { await closeTab(workspace.activeId); }); }
   else if (key === 'o' && event.shiftKey) { event.preventDefault(); toggleOutline(); }
-  else if (key === 'r' && event.shiftKey) { event.preventDefault(); action(() => { if (!workspace.active.composition) crossfade([$('app')],()=>schedulePreview(0, true)); }); }
+  else if (key === 'r' && event.shiftKey) { event.preventDefault(); action(() => { if (workspace.active && !workspace.active.composition) crossfade([$('app')],()=>schedulePreview(0, true)); }); }
   else if (key === 'v' && event.shiftKey) { event.preventDefault(); action(switchMode); }
   else if (key === 'f') { event.preventDefault(); crossfade([$('app')],()=>{ $('search-bar').hidden = false; $<HTMLInputElement>('find').focus(); }); }
-  else if (key === 'h') { event.preventDefault(); if (!workspace.active.readOnly) crossfade([$('app')],()=>{ $('search-bar').hidden = false; $<HTMLInputElement>('replace').focus(); }); }
-  else if (workspace.active.readOnly && ['b', 'i', 'z', 'y', 'k', '1', '2', '3', '4', '5', '6'].includes(key)) event.preventDefault();
+  else if (key === 'h') { event.preventDefault(); if (workspace.active && !workspace.active.readOnly) crossfade([$('app')],()=>{ $('search-bar').hidden = false; $<HTMLInputElement>('replace').focus(); }); }
+  else if (workspace.active?.readOnly && ['b', 'i', 'z', 'y', 'k', '1', '2', '3', '4', '5', '6'].includes(key)) event.preventDefault();
   else if (!$<HTMLDialogElement>('dialog').open && !$<HTMLDialogElement>('pdf-dialog').open && (document.activeElement?.closest('.cm-editor, .ProseMirror') || document.activeElement === document.body) && (key === 'b' || key === 'i' || key === 'k' || /^[1-6]$/.test(key))) {
     event.preventDefault(); action(() => key === 'b' ? boldActive() : key === 'i' ? markActive(schema.marks.em) : key === 'k' ? openLinkDialog() : headingActive(Number(key)));
   }
@@ -2283,7 +2408,7 @@ if (isTauri()) {
     const payload = event.payload;
     if (payload.type !== 'drop') return;
     const paths = payload.paths;
-    const markdown = paths.filter(path => /\.(md|markdown|txt)$/i.test(path));
+    const markdown = paths.filter(path => isSupportedDocumentPath(path));
     const images = paths.filter(path => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(path));
     action(async () => {
       for (const path of markdown) await openPath(path);
@@ -2350,10 +2475,15 @@ try {
   setupTypographyControls();
   // 本机字体异步补齐后重建字体下拉，不阻塞启动；命令缺失或非桌面环境时静默回落。
   if (isTauri()) void invoke<string[]>('list_system_fonts').then(list => { systemFonts = list; setupTypographyControls(); }).catch(() => {});
+  const openUpdateWindow = () => { if (isTauri()) void invoke('open_aux_window', { kind: 'update' }).catch(error); };
   const applyPreferences=()=>{
-    // 设置应用会同时改变主题、字体、A4、侧栏与视图预设：整窗做一次原位交叉淡入淡出，避免界面“闪一下”。
-    crossfade([$('app')],()=>{
+    // v0.3.0：设置即时生效。除主题外的调整直接应用，避免连续调整时界面反复闪动；
+    // 主题切换仍用原位交叉淡入淡出，避免浅色/深色直接跳变被感知为闪屏。
+    const resolvedTheme = () => settings().theme === 'system' ? (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light') : settings().theme;
+    const themeChanged = document.documentElement.dataset.theme !== resolvedTheme();
+    const applyCore = () => {
       applyMotion();
+      applyUiScale(settings().ui_scale);
       $<HTMLSelectElement>('theme').value = settings().theme;
       $<HTMLSelectElement>('default-mode').value = settings().default_mode;
       applyTypography(); setupTypographyControls(); splitControl.resize(settings().split); paper.refresh(); sidebar.refresh(); refreshTheme(); renderMenuShortcuts();
@@ -2362,15 +2492,19 @@ try {
         toggleSourceVisibility(sourceDefault);
       }
       views.restore();
-      $('status-text').textContent = '设置已保存';
       window.dispatchEvent(new Event('mdre:settings-applied'));
-    });
+    };
+    if (themeChanged) crossfade([$('app')], applyCore); else applyCore();
   };
   let preferencesReady:Promise<unknown>|undefined;
-  const ensurePreferences=()=>preferencesReady??=import('./ui/preferences').then(module=>module.setupPreferences({open:openFloating,close:closeFloating,fonts:fontChoices,applied:applyPreferences}));
+  const ensurePreferences=()=>preferencesReady??=import('./ui/preferences').then(module=>module.setupPreferences({open:openFloating,close:closeFloating,fonts:fontChoices,applied:applyPreferences,checkUpdates:openUpdateWindow}));
   $('settings-open').onclick=()=>{if(isTauri())void invoke('open_settings_window').catch(error);else void ensurePreferences().then(()=>$('settings-open').click()).catch(error);};
   $('help-menu').onclick=()=>{if(isTauri()){void invoke('open_aux_window',{kind:'help'}).catch(error);return;}void ensurePreferences().then(()=>$('help-menu').click()).catch(error);};
-  if(isTauri()){const {listen}=await import('@tauri-apps/api/event');await listen('settings-changed',async()=>{await loadSettings();applyPreferences();},{target:'main'});}
+  if(isTauri()){
+    const {listen}=await import('@tauri-apps/api/event');
+    await listen('settings-changed',async()=>{await loadSettings();applyPreferences();},{target:'main'});
+    setupUpdateIndicator({open:openUpdateWindow,fail:error});
+  }
 
   renderRecent();
   renderMenuShortcuts();
@@ -2402,3 +2536,24 @@ provideV025Env({
   saveSettings: patch => saveSettings(patch),
 });
 initV025();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

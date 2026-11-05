@@ -140,3 +140,86 @@ fn strip_style(name: &str) -> String {
     }
     family
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_style_suffixes_and_install_types() {
+        let raw: Vec<String> = [
+            "Arial (TrueType)",
+            "Arial Bold (TrueType)",
+            "Arial Bold Italic (TrueType)",
+            "Arial Italic (TrueType)",
+            "Arial Black (TrueType)",
+            "Segoe UI Semibold (TrueType)",
+            "Calibri Light Italic (TrueType)",
+        ]
+        .iter()
+        .map(|item| item.to_string())
+        .collect();
+        assert_eq!(
+            family_names(&raw),
+            vec![
+                "Arial".to_string(),
+                "Arial Black".to_string(),
+                "Calibri Light".to_string(),
+                "Segoe UI Semibold".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn splits_combined_font_family_values() {
+        let raw = vec![
+            "Microsoft YaHei & Microsoft YaHei UI (TrueType)".to_string(),
+            "Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)".to_string(),
+            "Cambria & Cambria Math (TrueType)".to_string(),
+            "SimSun & NSimSun (TrueType)".to_string(),
+        ];
+        assert_eq!(
+            family_names(&raw),
+            vec![
+                "Cambria".to_string(),
+                "Cambria Math".to_string(),
+                "Microsoft YaHei".to_string(),
+                "Microsoft YaHei UI".to_string(),
+                "NSimSun".to_string(),
+                "SimSun".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_localized_names_and_drops_bitmap_junk() {
+        let raw = vec![
+            "方正舒体 (TrueType)".to_string(),
+            "隶书 (TrueType)".to_string(),
+            "MS Sans Serif 8,10,12,14,18,24 (VGA res)".to_string(),
+            "Modern (All res)".to_string(),
+        ];
+        assert_eq!(
+            family_names(&raw),
+            vec!["Modern".to_string(), "方正舒体".to_string(), "隶书".to_string()]
+        );
+    }
+
+    #[test]
+    fn ignores_empty_and_duplicate_values() {
+        let raw = vec![
+            "".to_string(),
+            "Arial (TrueType)".to_string(),
+            "Arial (OpenType)".to_string(),
+            "arial (TrueType)".to_string(),
+        ];
+        assert_eq!(family_names(&raw), vec!["Arial".to_string()]);
+    }
+
+    // 本机是 Windows 开发/发布环境：真实枚举必须返回足够多的字体。
+    #[test]
+    fn enumerates_installed_fonts() {
+        let fonts = system_fonts();
+        assert!(fonts.len() > 50, "本机字体数量过少：{}", fonts.len());
+    }
+}

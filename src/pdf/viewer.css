@@ -1,0 +1,306 @@
+/*
+ * Styles for the shared PDF viewer (src/pdf).
+ *
+ * The module owns these class names; the host imports this file once and is
+ * responsible for giving the host container a definite height. Theme colors
+ * come from the host CSS custom properties (`--text`, `--background`,
+ * `--border`, `--accent`, `--hover`, `--muted`); every viewer level property
+ * can be overridden through the `--mdre-pdf-*` variables below. The only
+ * literal color is the paper surface of a page, which is overridable too.
+ */
+
+.mdre-pdf-host {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+
+.mdre-pdf-viewer {
+  --mdre-pdf-fg: var(--text, CanvasText);
+  --mdre-pdf-bg: var(--background, Canvas);
+  --mdre-pdf-border: var(--border, GrayText);
+  --mdre-pdf-accent: var(--accent, Highlight);
+  --mdre-pdf-hover: var(--hover, color-mix(in srgb, currentColor 12%, transparent));
+  --mdre-pdf-muted: var(--muted, GrayText);
+  /* Document surface: white paper, independent from the host color theme. */
+  --mdre-pdf-paper: #ffffff;
+  --mdre-pdf-thumb-width: 108px;
+  --mdre-pdf-shadow: 0 1px 3px color-mix(in srgb, currentColor 16%, transparent),
+    0 6px 18px color-mix(in srgb, currentColor 8%, transparent);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--mdre-pdf-fg);
+  background: var(--mdre-pdf-bg);
+  font-size: 12px;
+}
+
+.mdre-pdf-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* Keep scroll offsets deterministic while page sizes are corrected. */
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+}
+
+.mdre-pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+}
+
+.mdre-pdf-page {
+  position: relative;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  background: var(--mdre-pdf-paper);
+  border-radius: 2px;
+  box-shadow: var(--mdre-pdf-shadow);
+}
+
+.mdre-pdf-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Floating page counter + zoom controls, bottom right. */
+.mdre-pdf-hud {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--mdre-pdf-border);
+  border-radius: 8px;
+  background: var(--mdre-pdf-bg);
+  box-shadow: var(--mdre-pdf-shadow);
+  user-select: none;
+  line-height: 1;
+}
+
+.mdre-pdf-hud[hidden] {
+  display: none;
+}
+
+.mdre-pdf-page-indicator {
+  padding: 0 4px;
+  color: var(--mdre-pdf-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.mdre-pdf-zoom-value {
+  min-width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.mdre-pdf-zoom-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.mdre-pdf-zoom-button:hover:not(:disabled) {
+  background: var(--mdre-pdf-hover);
+}
+
+.mdre-pdf-zoom-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mdre-pdf-zoom-button:focus-visible {
+  outline: 2px solid var(--mdre-pdf-accent);
+  outline-offset: 1px;
+}
+
+/* Loading / error overlay. */
+.mdre-pdf-status {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 150px;
+  max-width: min(440px, 82%);
+  padding: 18px 20px;
+  border: 1px solid var(--mdre-pdf-border);
+  border-radius: 10px;
+  background: var(--mdre-pdf-bg);
+  box-shadow: var(--mdre-pdf-shadow);
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+.mdre-pdf-status[hidden] {
+  display: none;
+}
+
+.mdre-pdf-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: var(--mdre-pdf-accent);
+  border-radius: 50%;
+  animation: mdre-pdf-spin 900ms linear infinite;
+}
+
+.mdre-pdf-status.is-error .mdre-pdf-spinner {
+  display: none;
+}
+
+.mdre-pdf-status-text {
+  font-weight: 600;
+}
+
+.mdre-pdf-status-detail {
+  color: var(--mdre-pdf-muted);
+  line-height: 1.5;
+}
+
+.mdre-pdf-status-detail[hidden] {
+  display: none;
+}
+
+.mdre-pdf-progress {
+  width: 100%;
+  min-width: 140px;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  overflow: hidden;
+}
+
+.mdre-pdf-progress[hidden] {
+  display: none;
+}
+
+.mdre-pdf-progress-bar {
+  width: 100%;
+  height: 100%;
+  background: var(--mdre-pdf-accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 120ms linear;
+}
+
+@keyframes mdre-pdf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdre-pdf-spinner {
+    animation: none;
+  }
+
+  .mdre-pdf-progress-bar {
+    transition: none;
+  }
+}
+
+/* Thumbnail sidebar, mounted through `mountThumbnails(host)`. */
+.mdre-pdf-thumbs-host {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mdre-pdf-thumbs {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mdre-pdf-thumbs-scroll {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  overflow: hidden auto;
+  overflow-anchor: none;
+}
+
+.mdre-pdf-thumb {
+  flex: 0 0 auto;
+  width: var(--mdre-pdf-thumb-width, 108px);
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mdre-pdf-thumb-frame {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--mdre-pdf-paper);
+  box-shadow: var(--mdre-pdf-shadow);
+}
+
+.mdre-pdf-thumb-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mdre-pdf-thumb-label {
+  padding-top: 3px;
+  color: var(--mdre-pdf-muted);
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.mdre-pdf-thumb:hover {
+  border-color: color-mix(in srgb, var(--mdre-pdf-accent) 45%, transparent);
+}
+
+.mdre-pdf-thumb.is-active {
+  border-color: var(--mdre-pdf-accent);
+}
+
+.mdre-pdf-thumb.is-active .mdre-pdf-thumb-label {
+  color: var(--mdre-pdf-accent);
+  font-weight: 600;
+}
+
+.mdre-pdf-thumb:focus-visible {
+  outline: 2px solid var(--mdre-pdf-accent);
+  outline-offset: 1px;
+}

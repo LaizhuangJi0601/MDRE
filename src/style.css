@@ -17,15 +17,17 @@ button,input,select { font:inherit } button { color:inherit; cursor:pointer; bor
 #edit-bar .toolbar { height:36px; padding:0 6px; flex-wrap:nowrap }
 #tabs { display:flex; align-self:stretch; flex:1; min-width:100px; overflow-x:auto; scrollbar-width:none } #tabs button { display:flex; align-items:center; gap:7px; border-radius:0; flex:0 0 auto; min-width:0; max-width:240px; padding:0 10px; border-right:1px solid var(--border); color:var(--muted); font-size:13px } #tabs button.active { color:var(--text); box-shadow:inset 0 2px var(--accent) } #tabs svg { width:17px; height:17px; color:var(--accent) } .tab-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap } .tab-state { font-size:9px; margin-left:auto; min-width:9px; padding-left:6px }
 .toolbar { display:flex; align-items:center; gap:2px; padding:0 6px; font-size:13px } .icon-button { width:29px; height:28px; display:inline-flex; align-items:center; justify-content:center; padding:0; border-radius:4px; flex-shrink:0 } .tool-separator { height:16px; width:1px; background:var(--border); margin:0 5px } .view-tools { border-left:1px solid var(--border); padding-right:9px }
-input,select { min-width:0; padding:5px 7px; border:1px solid var(--border); border-radius:3px; background:var(--surface); color:var(--text) } #search-bar { gap:6px; padding:6px 10px; border-bottom:1px solid var(--border); justify-content:flex-end } #find { width:220px } #replace { width:155px } #replace-controls { display:flex; gap:5px } #find-result { min-width:52px; color:var(--muted); font-size:12px }
-main { --split:50%; --outline-width:0px; display:grid; grid-template-columns:var(--outline-width) minmax(0,var(--left-fr,1fr)) 7px minmax(0,var(--right-fr,1fr)); flex:1; min-height:0; overflow:hidden; background:var(--surface) }
+input,select { min-width:0; padding:5px 7px; border:1px solid var(--border); border-radius:3px; background:var(--surface); color:var(--text) } #search-bar { gap:6px; padding:6px 10px; border-bottom:1px solid var(--border); justify-content:flex-end; background:var(--surface) } #find { width:220px } #replace { width:155px } #replace-controls { display:flex; gap:5px } #find-result { min-width:52px; color:var(--muted); font-size:12px }
+main { --split:50%; --outline-width:0px; display:grid; grid-template-columns:var(--outline-width) minmax(0,var(--left-fr,1fr)) 7px minmax(0,var(--right-fr,1fr)); grid-template-rows:auto minmax(0,1fr); flex:1; min-height:0; overflow:hidden; background:var(--surface) }
 main.has-outline { --outline-width:216px }
-#outline-panel { grid-column:1; grid-row:1 }
-#source-pane { grid-column:2; grid-row:1 }
-#divider { grid-column:3; grid-row:1 }
-#render-pane { grid-column:4; grid-row:1 }
+#outline-panel { grid-column:1; grid-row:1 / span 2 }
+#source-pane { grid-column:2; grid-row:2 }
+#divider { grid-column:3; grid-row:2 }
+#render-pane { grid-column:4; grid-row:2 }
 main.read-only { grid-template-columns:var(--outline-width) minmax(0,1fr) }
-main.read-only #render-pane { grid-column:2 }
+main.read-only #render-pane { grid-column:2; grid-row:2 }
+/* 查找条只占编辑区上方：显示源码时跨源码+渲染，隐藏源码/阅读模式时只在渲染页上方，不再挤占左栏。 */
+#search-bar { grid-column:2 / -1; grid-row:1; min-width:0; height:38px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none }
 .ProseMirror em { font-style:italic; font-synthesis:style }
 #divider { background:linear-gradient(to right,transparent 3px,var(--border) 3px,var(--border) 4px,transparent 4px); cursor:col-resize; touch-action:none } #divider:hover,#divider:focus { background:var(--selection) }
 .pane { display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--surface) } .pane-title { display:flex; align-items:center; gap:7px; height:28px; padding:0 15px; color:var(--muted); font-size:11px; user-select:none } .pane-title svg { width:14px; height:14px; opacity:.8 }
@@ -258,7 +260,7 @@ dialog .dialog-actions { flex-shrink:0; padding-top:8px; background:var(--surfac
 #render .code-actions .code-delete { color:#e5484d; }
 /* 源码栏隐藏时保留富文本编辑；可见性与阅读模式独立。 */
 main.source-hidden { grid-template-columns:var(--outline-width) minmax(0,1fr) }
-main.source-hidden #render-pane { grid-column:2 }
+main.source-hidden #render-pane { grid-column:2; grid-row:2 }
 #source-toggle[aria-pressed="true"] { background:var(--selection); color:var(--accent) }
 #render .code-block .inline-language { margin:0; max-width:180px; padding:3px 6px; background:var(--code-bg); color:var(--code-fg); border-color:var(--code-border); font-size:12px; }
 #render .code-block .code-toggle { color:var(--code-muted); }
@@ -351,7 +353,7 @@ main.source-hidden #render-pane { grid-column:2 }
 .opened-head { font-size:11px; color:var(--muted); margin:10px 6px 4px; border-top:1px solid var(--border); padding-top:8px; }
 #panes.welcome-state { grid-template-columns:var(--outline-width) minmax(0,1fr); }
 #panes.welcome-state #source-pane, #panes.welcome-state #divider, #panes.welcome-state #render-pane { display:none; }
-#panes #welcome { grid-column:2 / -1; grid-row:1; min-width:0; overflow:auto; }
+#panes #welcome { grid-column:2 / -1; grid-row:2; min-width:0; overflow:auto; }
 .ProseMirror { white-space:pre-wrap; }
 .mermaid-view img { height:auto; }
 
@@ -448,7 +450,7 @@ body.toolbar-hidden #edit-bar { display:none; }
 #status-export,#status-settings { display:none; }
 body.toolbar-hidden #status-export,body.toolbar-hidden #status-settings { display:inline-flex; }
 #find { width:clamp(240px,28vw,440px); }
-#search-bar { flex-wrap:wrap; }
+#search-bar { flex-wrap:nowrap; }
 .ProseMirror hr.ProseMirror-selectednode { outline:2px solid var(--accent); }
 .ProseMirror .selected-cell { background:var(--selection); }
 /* 0.2.6：非 A4 页宽按渲染栏比例居中，纸张与导出继续使用原布局。 */
@@ -518,3 +520,59 @@ body[data-settings-window] #settings-error:not(:empty) { flex-shrink:0; }
 /* 非 A4 对齐只用于正文段落，不覆盖表格、代码和公式的布局。 */
 #render:not(.paper-mode) .ProseMirror p { text-align:var(--reading-align,justify); }
 #render:not(.paper-mode) .ProseMirror :is(td,th) p { text-align:inherit; }
+
+/* v0.3.0 界面缩放：只缩放正文以外的界面元素（标题栏、菜单、工具栏、侧栏含文件列表、状态栏、查找条、
+   欢迎页与弹窗）；正文、源码编辑区保持字号设置独立控制，不参与缩放。 */
+:root { --ui-scale:1 }
+#titlebar, #edit-bar, .tabs-bar, #search-bar, #outline-panel, #status, #welcome, #focus-exit {
+  zoom: var(--ui-scale);
+}
+/* 侧栏栏宽随界面缩放同步放大，避免文字变大后被裁切。 */
+main.has-outline { --outline-width: calc(var(--sidebar-width,216px) * var(--ui-scale)); }
+/* 弹窗整体缩放；宽高换算成缩放前单位，保证 200% 时仍完整落在窗口内。 */
+dialog {
+  zoom: var(--ui-scale);
+  max-width: calc((100vw - 24px) / var(--ui-scale));
+  max-height: calc((100vh - 24px) / var(--ui-scale));
+}
+/* 右键菜单与提示气泡不参与界面缩放：它们由脚本按鼠标坐标定位，缩放会同时放大坐标，容易越界。 */
+
+/* v0.3.0 顶部版本信息按钮与检查更新弹窗。 */
+.title-separator { color:var(--border); font-size:12px; padding:0 2px; user-select:none }
+.version-button { position:relative; font-size:12px; color:var(--muted); padding:4px 8px; border-radius:4px; white-space:nowrap }
+.version-button:hover { background:var(--hover); color:var(--text) }
+.version-button[data-update="true"]::after { content:''; position:absolute; top:1px; right:1px; width:6px; height:6px; border-radius:50%; background:#2f7cf6; box-shadow:0 0 0 1px var(--surface) }
+/* 设置里的界面缩放三段控件：− 下拉 +，不使用滑条。 */
+.ui-scale-control { display:flex; align-items:center; gap:6px }
+.ui-scale-control button { width:28px; height:26px; border:1px solid var(--border); border-radius:4px; flex-shrink:0 }
+.ui-scale-control select { flex:1; min-width:0 }
+/* 辅助窗口在定位完成前先隐藏，避免先在默认位置闪一下再跳到记忆位置。 */
+body.aux-booting dialog { visibility:hidden!important }
+/* v0.3.0 独立检查更新窗口：与设置/帮助窗口相同的标题栏与边缘缩放，尽量多显示更新说明。 */
+#update-window { width:min(880px,92vw); height:min(680px,calc(100vh - 24px)); font-size:13px; line-height:1.6; padding:0; }
+#update-window .dialog-window-bar { flex-shrink:0 }
+#update-window .update-content { flex:1; min-height:0; overflow:auto; padding:18px 24px 8px; display:flex; flex-direction:column; gap:12px; }
+#update-window #update-status { margin:0; color:var(--text); font-size:14px }
+#update-window .update-meta { display:flex; flex-wrap:wrap; gap:6px 18px; color:var(--muted); font-size:12px }
+#update-window .update-meta p { margin:0 }
+#update-window .update-notes { flex:1; min-height:140px; overflow:auto; white-space:pre-wrap; color:var(--text); font-size:13px; line-height:1.7; padding:12px 14px; border:1px solid var(--border); border-radius:6px; background:var(--hover) }
+#update-window #update-progress { width:100% }
+#update-window #update-error { min-height:0; color:var(--danger); margin:0 }
+#update-window .dialog-actions { padding:12px 24px 16px; margin:0; flex-shrink:0 }
+#update-error { color:var(--danger); min-height:0; font-size:12px }
+#settings-update[hidden] { display:none }
+/* v0.3.0 非 Markdown 文档视图：代码编辑区、Word 阅读区、PDF 查看器与大纲缩略图。 */#code-pane { grid-column:2 / -1; grid-row:2 }
+#code-host { flex:1; min-height:0; overflow:hidden; display:flex }
+#code-host > * { flex:1; min-width:0 }
+#docx-view, #pdf-view { flex:1; min-height:0; overflow:auto; position:relative }
+#docx-view:not([hidden]) { display:block }
+#pdf-view:not([hidden]) { display:flex }
+#pdf-thumbnails { flex:1; min-height:0; overflow:hidden; display:block }
+#pdf-thumbnails:not([hidden]) { display:block }
+#pdf-view .mdre-pdf-host { flex:1; min-width:0; min-height:0 }
+#code-pane .pane-title, #pdf-view, #docx-view { background:var(--surface) }
+/* 具体弹窗的宽度/高度规则优先级高于上面的通用 dialog 规则，这里统一按缩放前单位钳制，避免 200% 时超出窗口。 */
+#dialog, #math-dialog, #link-dialog, #code-dialog, #table-dialog, #pdf-dialog, #close-dialog, #conflict-dialog, #missing-dialog, #encoding-dialog, #shortcut-dialog, #goto-dialog, #image-dialog, #settings-dialog, #help-dialog, #update-dialog {
+  max-width: calc((100vw - 24px) / var(--ui-scale));
+  max-height: calc((100vh - 24px) / var(--ui-scale));
+}

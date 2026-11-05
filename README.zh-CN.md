@@ -5,7 +5,7 @@
 <p align="center"><strong>同一份 Markdown，两种编辑方式。</strong><br>面向 Windows 的 Markdown 编辑、排版与阅读工作区。<br><sub>Windows 10 / 11 · x64 · English / 简体中文</sub></p>
 
 <p align="center">
-  <a href="https://github.com/LaizhuangJi0601/MDRE/blob/main/CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.7-2878d5" alt="Version 0.2.7"></a>
+  <a href="https://github.com/LaizhuangJi0601/MDRE/blob/main/CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.3.0-2878d5" alt="Version 0.3.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5b8c70" alt="MIT license"></a>
   <a href="https://developer.microsoft.com/microsoft-edge/webview2/"><img src="https://img.shields.io/badge/platform-Windows_x64-667085" alt="Windows 10 / 11 · x64"></a>
 </p>
@@ -26,7 +26,11 @@
 - **处理表格与图片。** 调整列宽、对齐、合并与拆分单元格；按引用顺序浏览图片资源。
 - **导出与互通。** 导出 HTML、PDF 或可分享 ZIP；支持复制为富文本与 HTML 转 Markdown 粘贴。
 - **Word 转换。** 通过另行安装的 Pandoc 导入、导出 `.docx`。
-- **按偏好组织工作区。** 提供浅色／深色主题、简体中文／English、视图预设、分类设置、本机字体选择，以及可搜索的离线帮助与章节导航。
+- **不止 Markdown。** 查看 PDF（缩放与页面缩略图）、阅读 Word 文档，并打开带语法高亮的纯文本与代码文件。
+- **界面缩放。** 将菜单、侧栏、对话框与状态栏在 80%–200% 之间缩放，正文不受影响。
+- **在编辑区上方查找。** 查找与替换显示在文档上方，不再占用侧栏；上一个／下一个匹配使用一致的箭头。
+- **检查版本更新。** 从顶部版本按钮或设置页检查最新版本，在应用内下载，完成后重启生效。
+- **按偏好组织工作区。** 提供浅色／深色主题、简体中文／English、视图预设、即时生效的分类设置、本机字体选择，以及可搜索的离线帮助与章节导航。
 
 文件侧栏、标签和最近项目集中在工作区内；支持自动保存、恢复快照、外部文件变更检测及阅读位置恢复。
 
@@ -34,13 +38,13 @@
 
 ## 下载安装
 
-当前构建为 **0.2.7**。[更新记录](CHANGELOG.md)汇总版本变化。
+当前构建为 **0.3.0**。[更新记录](CHANGELOG.md)汇总版本变化。
 
 | 版本 | 下载 | 运行要求 |
 | --- | --- | --- |
 | Windows 桌面版 | [下载 mdre.exe](https://github.com/LaizhuangJi0601/MDRE/raw/refs/heads/main/mdre.exe) · [SHA-256](SHA256SUMS.txt) | Windows 10 / 11 · x64 |
 
-下载后运行 `mdre.exe`。Windows 需要安装 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。首次打开后，可通过欢迎页新建文档或打开现有 Markdown 文件。
+下载后运行 `mdre.exe`。Windows 需要安装 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。首次打开后，可通过欢迎页新建文档，或打开现有的 Markdown、文本、代码、PDF 与 Word 文件。
 
 偏好设置、图片资源与恢复数据保存在用户的应用数据目录中。支持在设置中选择语言、主题、默认视图和快捷键。
 
@@ -67,6 +71,6 @@ pnpm app:build
 
 ## 许可
 
-MDRE 采用 [MIT 许可证](LICENSE)。感谢 [Tauri](https://tauri.app/)、[CodeMirror](https://codemirror.net/)、[ProseMirror](https://prosemirror.net/)、[markdown-it](https://github.com/markdown-it/markdown-it)、[KaTeX](https://katex.org/)、[MathLive](https://mathlive.io/)、[Mermaid](https://mermaid.js.org/) 与 [highlight.js](https://highlightjs.org/) 等开源项目。
+MDRE 采用 [MIT 许可证](LICENSE)。感谢 [Tauri](https://tauri.app/)、[CodeMirror](https://codemirror.net/)、[ProseMirror](https://prosemirror.net/)、[markdown-it](https://github.com/markdown-it/markdown-it)、[KaTeX](https://katex.org/)、[MathLive](https://mathlive.io/)、[Mermaid](https://mermaid.js.org/)、[pdf.js](https://mozilla.github.io/pdf.js/)、[Mammoth](https://github.com/mwilliamson/mammoth.js) 与 [highlight.js](https://highlightjs.org/) 等开源项目。
 
 第三方组件的版权与使用条件以原始许可证为准，见[声明与许可](docs/help/MDRE声明.md)。
